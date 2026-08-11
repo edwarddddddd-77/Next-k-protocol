@@ -1,6 +1,8 @@
 # HL 映仓台（Protocol）
 
-从 `next-k-api` **原样移植**的 Hyperliquid → 纸面/Bitget/Binance 跟单桌面。`next-k-api` 保持不变；前端「映仓台」仍打 API，「映仓台·P」打本服务。
+从 `next-k-api` 移植的 Hyperliquid → 纸面/Bitget/Binance 跟单桌面。`next-k-api` 保持不变；前端「映仓台」仍打 API，「映仓台·P」打本服务。
+
+Protocol 桌面席位精简为 **C + F**（见 `hl_short_term_watchlist.json`）。实盘通常只开 C：`HL_BITGET_ENABLE_BOTS=bot_c`（主账户 `BITGET_*`）；F 默认纸面。
 
 ## 开关
 
