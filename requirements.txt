@@ -8,10 +8,15 @@ pydantic>=2.5.0
 
 # Binance Futures REST
 httpx>=0.27.0
+requests>=2.31.0
 
-# clawby-quant sidecar
+# clawby-quant sidecar + HL desk WS
 PyYAML>=6.0
 websockets>=12.0
+
+# HL desk weekly candidates
+APScheduler>=3.10.0
+pytz>=2024.1
 
 # Observability
 structlog>=24.0.0

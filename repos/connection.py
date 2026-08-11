@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS signals_log (
 def get_db(write: bool = False) -> Generator[sqlite3.Connection, None, None]:
     if write:
         _db_write_lock.acquire()
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -76,6 +77,7 @@ def get_db(write: bool = False) -> Generator[sqlite3.Connection, None, None]:
 
 
 def init_db() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_db(write=True) as conn:
         conn.executescript(DDL)
         for table, column, ddl in [

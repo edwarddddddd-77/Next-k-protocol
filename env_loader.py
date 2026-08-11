@@ -18,5 +18,8 @@ def load_env_oi(base_dir: Optional[Path] = None) -> Optional[Path]:
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 v = v.split(" #")[0].split("\t#")[0].strip()
+                # Allow KEY="value" / KEY='value' paste from Railway / docs
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                    v = v[1:-1].strip()
                 os.environ.setdefault(k.strip(), v)
     return path

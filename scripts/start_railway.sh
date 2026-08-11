@@ -28,7 +28,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 start_wangge() {
-  local v="${WANGGE_ENABLED:-1}"
+  # Default off (match export above); only start when explicitly enabled.
+  local v="${WANGGE_ENABLED:-0}"
   case "${v,,}" in
     0|false|no|off)
       echo "[protocol] wangge skipped (WANGGE_ENABLED off)"

@@ -12,6 +12,14 @@ htmlcov/
 .pid/
 logs/
 .env.oi
+
+# HL desk runtime state (config/watchlist JSON are committed)
+hl_short_term_state.json
+hl_short_term_events.jsonl
+hl_short_term_board.json
+hl_paper_copy.json
+hl_consensus_paper.json
+
 vendor/wangge/node_modules/
 vendor/wangge/.env
 vendor/wangge/logs/

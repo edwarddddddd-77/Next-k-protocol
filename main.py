@@ -106,8 +106,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("clawby-quant sidecar startup skipped: %s", e)
 
+    try:
+        from utils.hl_desk_runtime import start_hl_desk
+
+        start_hl_desk(app)
+    except Exception as e:
+        logger.warning("HL desk startup skipped: %s", e)
+
     yield
     reconcile_task.cancel()
+
+    try:
+        from utils.hl_desk_runtime import stop_hl_desk
+
+        stop_hl_desk(app)
+    except Exception as e:
+        logger.warning("HL desk shutdown skipped: %s", e)
 
     try:
         from utils.clawby_quant_runtime import stop_sidecar
@@ -122,10 +136,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Next K Protocol",
     description=(
-        "币安合约实盘交易 API 服务。接收交易请求并执行开仓，"
-        "当前持仓直接读取币安实时数据；可选嵌入 clawby-quant。"
+        "币安合约实盘 + HL 映仓台 + 可选 clawby-quant / Next K 网格代理。"
     ),
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -155,8 +168,18 @@ app.include_router(metrics_router)
 from routers.clawby_quant import router as clawby_quant_router
 app.include_router(clawby_quant_router)
 
+try:
+    from utils.hl_desk_runtime import desk_enabled
+    from routers.hl_short import router as hl_short_router
+
+    if desk_enabled():
+        app.include_router(hl_short_router)
+        logger.info("HL desk routes: /api/hl-short/*")
+except Exception as e:
+    logger.warning("HL desk router not mounted: %s", e)
+
 logger.info(
-    "Routes: /api/binance/* | /api/clawby-quant/* | /clawby-ui/ | Next K grid UI+API proxied on /"
+    "Routes: /api/binance/* | /api/hl-short/* | /api/clawby-quant/* | /clawby-ui/ | Next K grid UI+API proxied on /"
 )
 logger.info("Swagger: http://0.0.0.0:%d/docs", PORT)
 logger.info("Binance health: http://0.0.0.0:%d/api/binance/health", PORT)

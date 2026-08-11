@@ -18,11 +18,14 @@ Next K Protocol 是 Next K 交易系统的**执行层服务**，负责：
 
 ```
 next-k-api ──/api/binance/*──► Next K Protocol（币安执行）
+next-k-frontend/hl-short.html ─► next-k-api /api/hl-short/*（原映仓台）
+next-k-frontend/hl-short-protocol.html ─► Protocol /api/hl-short/*（映仓台·P）
 next-k-frontend/grid.html ─► Protocol / （Next K 网格 · Bitget）
 next-k-frontend/clawby-quant.html ─► Protocol /api/clawby-quant/* + /clawby-ui/
 ```
 
-`vendor/wangge` = Next K 网格实现目录（Bitget USDT 永续多标的，共享账户）。详见 `docs/WANGGE.md`。
+`vendor/wangge` = Next K 网格实现目录（Bitget USDT 永续多标的，共享账户）。详见 `docs/WANGGE.md`。  
+HL 映仓台已移植进本仓库（`/api/hl-short/*`），详见 `docs/HL_DESK.md`。`next-k-api` 侧代码未改。
 
 ### 架构图
 

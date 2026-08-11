@@ -1,0 +1,5 @@
+{
+  "updated": "2026-07-31",
+  "note": "Binance routes retired. bot_o removed 2026-07-31. Prefer Bitget (hl_bitget_subaccounts.json).",
+  "subaccounts": []
+}
