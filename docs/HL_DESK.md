@@ -4,20 +4,21 @@
 
 Protocol 桌面席位精简为 **C + F**（见 `hl_short_term_watchlist.json`）。实盘通常只开 C：`HL_BITGET_ENABLE_BOTS=bot_c`（主账户 `BITGET_*`）；F 默认纸面。
 
+已移除：反马丁袖（AM）、跟单候选池（周筛 / `/candidates` / `hl_desk_candidates*`）。
+
 ## 开关
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `HL_DESK_ENABLED` | `1` | 挂载 `/api/hl-short/*` 并启动运行时 |
 | `HL_COPY_ENABLED` | `1`（见 supervisor） | WS 跟单监督器 |
-| `HL_DESK_WEEKLY_SCHEDULER` | `1` | 周一 09:30 上海重建候选池 |
 | `HL_BITGET_LIVE` / `HL_BINANCE_LIVE` | 通常 `0` | 实盘执行（与 API 侧相同语义） |
 
 **注意：** 若 Railway 上 next-k-api 与 Protocol **同时** `HL_COPY_ENABLED=1` 且开了同一实盘，会对同一领导者双开跟单。切流时应只留一侧开启。
 
 ## 路由
 
-与 API 相同：`/api/hl-short/watchlist|board|paper|copy/status|candidates|…`
+`/api/hl-short/watchlist|board|paper|copy/status|live/*|f-mr`
 
 网格代理开启时，`/api/hl-short` 已加入 Protocol keep 列表，不会被转到 wangge。
 

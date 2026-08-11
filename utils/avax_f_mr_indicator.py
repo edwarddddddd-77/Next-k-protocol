@@ -25,7 +25,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Sequence
 
-from utils.hl_wr_screen import _hl_info
+from utils.hl_short_term import http_json as _hl_info
 
 BJ = timezone(timedelta(hours=8))
 Side = Literal["long", "short", "flat"]
