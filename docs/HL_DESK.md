@@ -6,6 +6,8 @@ Protocol 桌面席位精简为 **C + F**（见 `hl_short_term_watchlist.json`）
 
 已移除：反马丁袖（AM）、跟单候选池（周筛 / `/candidates` / `hl_desk_candidates*`）。
 
+跟单核心（`hl_copy_supervisor` / `hl_ws` / `hl_short_term` / Bitget·Binance executor 等）与 `next-k-api` **保持一致**；`hl_paper_copy.py` 在 api 同款逻辑上**剥离 AM**（勿整文件从 api 覆盖回来）。守卫单测：`tests/test_hl_desk_no_am_candidates.py`。
+
 ## 开关
 
 | 变量 | 默认 | 说明 |
