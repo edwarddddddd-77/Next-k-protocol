@@ -2,6 +2,10 @@
 
 源码目录名仍为 `vendor/wangge`（部署路径未改）；产品面统称 **Next K**。只保留 **Bitget** USDT 永续。
 
+## 启停
+
+默认 **暂停**（`WANGGE_ENABLED=0`）：`start_railway.sh` 不拉起 Node 网格进程，Protocol 也不挂反向代理。恢复时设 `WANGGE_ENABLED=1`（生产可再设 `WANGGE_REQUIRED=1`）。
+
 ## 模型
 
 | 项 | 说明 |

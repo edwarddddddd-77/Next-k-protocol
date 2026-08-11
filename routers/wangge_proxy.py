@@ -112,5 +112,6 @@ class WanggeProxyMiddleware(BaseHTTPMiddleware):
 
 
 def wangge_enabled() -> bool:
-    raw = os.getenv("WANGGE_ENABLED", "1")
+    # Default off: pause Next K grid sidecar / reverse-proxy until explicitly re-enabled.
+    raw = os.getenv("WANGGE_ENABLED", "0")
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
