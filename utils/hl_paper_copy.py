@@ -416,13 +416,6 @@ def _is_shared_desk_bot(bot: dict[str, Any] | None) -> bool:
     return str(bot.get("section") or "").strip().upper() == "S"
 
 
-def _shared_section_key(bot: dict[str, Any] | None) -> str:
-    if not isinstance(bot, dict):
-        return "S"
-    sec = str(bot.get("section") or "S").strip().upper()
-    return sec or "S"
-
-
 def _wallet_shared_desk(wallet: dict[str, Any] | None) -> bool:
     if not isinstance(wallet, dict):
         return False
