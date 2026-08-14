@@ -2,7 +2,7 @@
   "updated": "2026-08-14T10:25+08:00",
   "venue": "hyperliquid",
   "mode": "monitor_first_then_dry_run_copy",
-  "note": "Protocol desk: C live + F paper + S account-island (per-seat: 1coin=1000U, 2coin=2000U → Σ5000U). Live: Railway HL_BITGET_ENABLE_BOTS=bot_c. Desk S island vs C/F; sizing=seat_eq/leader_eq. Not financial advice.",
+  "note": "Protocol desk: C live + F paper + S account-island (1coin=1000U / 2coin=2000U → Σ5000U). Desk S copy_current=on: one-shot paper sync + mid-book catch-up. Live: Railway HL_BITGET_ENABLE_BOTS=bot_c. Not financial advice.",
   "wallets": [
     {
       "id": "bot_c",
@@ -48,9 +48,9 @@
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
-      "copy_current": false,
+      "copy_current": true,
       "style": "sleeve · SOL",
-      "why": "Desk S account island · cb73 SOL only · seat 1000U (1 coin)",
+      "why": "Desk S account island · cb73 SOL only · seat 1000U (1 coin) · sync current",
       "coins": [
         "SOL"
       ],
@@ -76,9 +76,9 @@
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
-      "copy_current": false,
+      "copy_current": true,
       "style": "sleeve · ETH/BTC",
-      "why": "Desk S account island · caaacd ETH+BTC · seat 2000U (2 coins)",
+      "why": "Desk S account island · caaacd ETH+BTC · seat 2000U (2 coins) · sync current",
       "coins": [
         "ETH",
         "BTC"
@@ -105,9 +105,9 @@
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
-      "copy_current": false,
+      "copy_current": true,
       "style": "sleeve · CL",
-      "why": "Desk S account island · 885327 CL only · seat 1000U (1 coin)",
+      "why": "Desk S account island · 885327 CL only · seat 1000U (1 coin) · sync current",
       "coins": [
         "xyz:CL"
       ],
@@ -133,9 +133,9 @@
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
-      "copy_current": false,
+      "copy_current": true,
       "style": "sleeve · MU",
-      "why": "Desk S account island · 6807 MU only · seat 1000U (1 coin)",
+      "why": "Desk S account island · 6807 MU only · seat 1000U (1 coin) · sync current",
       "coins": [
         "xyz:MU"
       ],

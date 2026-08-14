@@ -71,9 +71,10 @@ _mark_guard = MinIntervalGuard("HL_PAPER_MARK_COOLDOWN_SEC", 10.0)
 _mids_ttl_sec = float(os.getenv("HL_MIDS_CACHE_SEC", "30") or 30)
 _av_ttl_sec = float(os.getenv("HL_TARGET_AV_TTL_SEC", "30") or 30)
 _health_guard = MinIntervalGuard("HL_TARGET_HEALTH_SEC", 300.0)
-# Live venue ops queued outside the paper lock.
+# Live venue ops + paper copy-current sync queued outside the paper lock.
 _pending_live_flatten: list[str] = []
 _pending_live_align: list[str] = []
+_pending_paper_align: list[str] = []
 _dup_addr_warned: set[str] = set()
 
 
@@ -107,18 +108,30 @@ def _queue_live_align(bot_ids: list[str] | set[str]) -> None:
             _pending_live_align.append(s)
 
 
+def _queue_paper_align(bot_ids: list[str] | set[str]) -> None:
+    """One-shot paper mirror to leader×seat_equity (copy_current)."""
+    for bid in bot_ids:
+        s = str(bid or "").strip()
+        if s and s not in _pending_paper_align:
+            _pending_paper_align.append(s)
+
+
 def flush_pending_live_flatten() -> list[str]:
     """Run outside paper locks: flatten retired seats + align new live_only seats."""
-    global _pending_live_flatten, _pending_live_align
+    global _pending_live_flatten, _pending_live_align, _pending_paper_align
     flat_ids = list(_pending_live_flatten)
     align_ids = list(_pending_live_align)
+    paper_ids = list(_pending_paper_align)
     _pending_live_flatten = []
     _pending_live_align = []
+    _pending_paper_align = []
     if flat_ids:
         _sync_live_after_paper_reset(flat_ids)
     if align_ids:
         _sync_live_align(align_ids)
-    return flat_ids + align_ids
+    if paper_ids:
+        _sync_paper_align(paper_ids)
+    return flat_ids + align_ids + paper_ids
 
 
 def _data_dir() -> Path:
@@ -747,6 +760,8 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
         was_copy_current = _bot_copy_current(bots[bid])
         bots[bid]["copy_current"] = _truthy_flag(w.get("copy_current"))
         now_copy_current = _bot_copy_current(bots[bid])
+        if not now_copy_current:
+            bots[bid].pop("copy_current_synced_at", None)
         if live_only and not bots[bid].get("paper_cleared_for_live"):
             bots[bid]["positions"] = {}
             bots[bid]["fills"] = []
@@ -782,6 +797,20 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
             _queue_live_align([bid])
             logger.info(
                 "copy_current ON %s — queued Bitget sync align",
+                bid,
+            )
+        elif (
+            not live_only
+            and now_copy_current
+            and (
+                not was_copy_current
+                or not bots[bid].get("copy_current_synced_at")
+            )
+        ):
+            # Paper seat: one-shot mirror leader×seat equity (desk S sleeves etc.).
+            _queue_paper_align([bid])
+            logger.info(
+                "copy_current ON %s — queued paper sync align",
                 bid,
             )
         elif not live_only and bots[bid].get("paper_cleared_for_live"):
@@ -1283,6 +1312,63 @@ def _sync_live_align(bot_ids: list[str]) -> None:
         bn_exec(rows, immediate=True)
     except Exception:
         logger.exception("live_only align binance sync bots=%s", [r["source"] for r in rows])
+
+
+def _sync_paper_align(bot_ids: list[str]) -> None:
+    """One-shot paper mirror: open/close to leader×seat_equity (allowlist coins only)."""
+    ids = [str(b or "").strip() for b in bot_ids if str(b or "").strip()]
+    if not ids:
+        return
+    try:
+        mids = fetch_all_mids(force=True)
+    except Exception as exc:
+        logger.warning("paper align mids failed: %s", exc)
+        mids = dict(_mids_cache)
+    cfg = paper_config()
+    with _lock:
+        book = load_paper()
+        bots = book.get("bots") or {}
+        for bid in ids:
+            bot = bots.get(bid)
+            if not isinstance(bot, dict) or is_live_only_bot(bot):
+                continue
+            addr = str(bot.get("address") or "").strip()
+            if not addr:
+                continue
+            try:
+                snap = hl_snapshot_positions(addr)
+            except Exception:
+                logger.exception("paper align snapshot failed bot=%s", bid)
+                continue
+            try:
+                spot = hl_snapshot_spot(addr, fill_limit=8)
+            except Exception:
+                try:
+                    spot = {"usdc": hl_snapshot_spot_usdc(addr), "balances": [], "recent_fills": []}
+                except Exception:
+                    spot = None
+            if snap is not None:
+                _cache_target_meta(bot, snap)
+            if spot is not None:
+                _apply_spot_snapshot(bot, spot)
+            rows = _mirror_target_book(bot, snap or {}, mids, cfg, book=book)
+            bot["copy_current_synced_at"] = _now()
+            logger.info(
+                "HL paper copy_current sync bot=%s rows=%s allow=%s equity=%s ratio=%s",
+                bid,
+                len(rows or []),
+                bot.get("allow_coins"),
+                bot.get("equity"),
+                bot.get("copy_ratio"),
+            )
+        save_paper(book)
+    # Nested load_paper→_ensure_bots may re-queue before synced_at is written.
+    for bid in ids:
+        if bid in _pending_paper_align:
+            try:
+                _pending_paper_align.remove(bid)
+            except ValueError:
+                pass
 
 
 def fetch_all_mids(*, force: bool = False) -> dict[str, float]:
