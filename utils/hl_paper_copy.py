@@ -6,7 +6,7 @@ health / WS fills are keyed by address and applied to every matching bot.
 
 Sizing:
   open/add: our_delta = fill.sz × (bot_equity / target_equity) at fill.px
-  shared desk S: bot_equity = desk base + Σ sleeve PnL (not per-seat cash)
+  shared desk S: account island Σ(seat alloc); sizing = seat_equity / target_equity
   target_equity = perp AV (main+xyz) + Core spot USDC — stable across spot↔perp transfers
   target_av stays perp-only (empty/inactive health); HyperEVM USDC is monitor-only
   flat-entry burst: coalesce same-sign clips only when leader pre≈0 (true new entry)
@@ -16,8 +16,8 @@ Sizing:
     (Dextrabot/Legend Copy Current — never open the Add delta alone)
   twin seats (mirror_of + live): after fills, Copy-Current sync to sibling paper × equity
   Protocol: anti-martingale sleeve removed.
-  Desk section ``S`` (shared_desk_capital): seats share one 1000U pool — each sleeve
-  sizes as desk_equity / leader_equity with a coin allowlist.
+  Desk section ``S`` (shared_desk_capital): one account-layer island (Σ seat alloc
+  = desk capital); copy sizing is per-seat paper_balance / leader_equity + coin allowlist.
   dust open: skip with reason dust_open (never silent)
   reduce: scale our size by leader remaining fraction (startPosition→post), not raw δ×ratio
   reconcile: leader flat on a coin → close our leg (Bitget syncs paper)
@@ -405,7 +405,7 @@ def is_live_only_bot(bot: dict[str, Any] | None) -> bool:
 
 
 def _is_shared_desk_bot(bot: dict[str, Any] | None) -> bool:
-    """Desk S (sleeve board): seats share one capital pool for sizing."""
+    """Desk S: same account-layer island (risk/UI); copy sizing is still per-seat."""
     if not isinstance(bot, dict):
         return False
     if bot.get("shared_desk_capital") is True:
@@ -439,7 +439,7 @@ def _ensure_desk_ledger(
     section: str,
     want: float,
 ) -> dict[str, Any]:
-    """One shared cash base per desk section (e.g. S = 1000U)."""
+    """Account-layer capital statement for a desk section (Σ seat allocations)."""
     section = str(section or "S").strip().upper() or "S"
     want = max(0.0, float(want))
     ledgers = data.setdefault("desk_ledgers", {})
@@ -474,26 +474,10 @@ def _shared_desk_equity(
     section: str,
     cfg: dict[str, Any] | None = None,
 ) -> float:
-    """Shared desk equity = desk base capital + Σ(sleeve realized+uPnL)."""
-    cfg = cfg or paper_config()
+    """Account-layer desk equity = Σ per-seat equity (copy sizing stays per-seat)."""
+    del cfg  # reserved for callers; equity comes from seat ledgers
     section = str(section or "S").strip().upper() or "S"
-    led = None
-    if isinstance(book, dict):
-        ledgers = book.get("desk_ledgers")
-        if isinstance(ledgers, dict):
-            led = ledgers.get(section)
-    try:
-        base = float(
-            (led or {}).get("paper_balance")
-            if isinstance(led, dict) and (led or {}).get("paper_balance") is not None
-            else (led or {}).get("balance")
-            if isinstance(led, dict) and (led or {}).get("balance") is not None
-            else cfg.get("bot_balance")
-            or 1000.0
-        )
-    except (TypeError, ValueError):
-        base = float(cfg.get("bot_balance") or 1000.0)
-    pnl = 0.0
+    total = 0.0
     if isinstance(book, dict):
         for bot in (book.get("bots") or {}).values():
             if not isinstance(bot, dict):
@@ -504,10 +488,10 @@ def _shared_desk_equity(
                 continue
             _recompute_bot(bot)
             try:
-                pnl += float(bot.get("equity") or bot.get("balance") or 0)
+                total += float(bot.get("equity") or bot.get("balance") or 0)
             except (TypeError, ValueError):
                 pass
-    return max(0.0, round(base + pnl, 4))
+    return max(0.0, round(total, 4))
 
 
 def _sizing_equity(
@@ -515,17 +499,8 @@ def _sizing_equity(
     cfg: dict[str, Any],
     book: dict[str, Any] | None = None,
 ) -> float:
-    """Equity used for copy ratio / notional caps."""
-    if _is_shared_desk_bot(bot):
-        if book is not None:
-            eq = _shared_desk_equity(book, _shared_section_key(bot), cfg)
-            bot["_sizing_equity"] = eq
-            return eq
-        try:
-            cached = float(bot.get("_sizing_equity"))
-        except (TypeError, ValueError):
-            cached = 0.0
-        return max(0.0, cached)
+    """Equity used for copy ratio / notional caps (always per-seat, including desk S)."""
+    del book  # desk S no longer sizes off shared pool
     _recompute_bot(bot)
     try:
         eq = float(bot.get("equity") or bot.get("balance") or cfg["bot_balance"])
@@ -535,15 +510,9 @@ def _sizing_equity(
     return eq
 
 
-def _normalize_shared_seat_cash(bot: dict[str, Any]) -> None:
-    """Shared desk seats: no per-seat cash seed; balance tracks realized PnL only."""
-    bot["paper_balance"] = 0.0
+def _mark_shared_seat(bot: dict[str, Any]) -> None:
+    """Tag seat as desk-S account island; cash/ledger stay per-seat."""
     bot["shared_desk_capital"] = True
-    try:
-        realized = float(bot.get("realized_pnl") or 0)
-    except (TypeError, ValueError):
-        realized = 0.0
-    bot["balance"] = round(realized, 4)
     _recompute_bot(bot)
 
 
@@ -684,14 +653,14 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
         bid = str(w.get("id") or w.get("address") or "")[:32]
         init = _bot_initial_balance(w, cfg)
         shared = _wallet_shared_desk(w)
-        # Shared desk seats hold $0 individually; desk_ledgers[S] is the capital.
-        seat_init = 0.0 if shared else init
+        # Desk S: per-seat paper_balance for copy sizing; desk_ledgers = Σ alloc (account).
+        seat_init = init
         new_addr = str(w.get("address") or "").strip().lower()
         if bid not in bots:
             bots[bid] = _empty_bot(w, seat_init)
             bots[bid]["paper_balance"] = seat_init
             if shared:
-                bots[bid]["shared_desk_capital"] = True
+                _mark_shared_seat(bots[bid])
             membership_changed = True
         else:
             old_addr = str(bots[bid].get("address") or "").strip().lower()
@@ -705,6 +674,8 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
                 )
                 bots[bid] = _empty_bot(w, seat_init)
                 bots[bid]["paper_balance"] = seat_init
+                if shared:
+                    _mark_shared_seat(bots[bid])
                 membership_changed = True
             else:
                 bots[bid]["id"] = bid
@@ -723,11 +694,11 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
                         bots[bid]["risk_anchor_equity"] = float(
                             bots[bid].get("paper_balance") or default_bal
                         )
+                _apply_initial_balance(bots[bid], init, default=default_bal)
                 if shared:
-                    # Migrate away from per-seat cash into shared desk pool.
-                    _normalize_shared_seat_cash(bots[bid])
+                    _mark_shared_seat(bots[bid])
                 else:
-                    _apply_initial_balance(bots[bid], init, default=default_bal)
+                    bots[bid].pop("shared_desk_capital", None)
         # Keep paper allowlist in sync with watchlist coins (None = all)
         allow = _parse_allow_coins(w.get("coins"))
         if allow is None:
@@ -822,7 +793,7 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
             )
         elif not live_only and bots[bid].get("paper_cleared_for_live"):
             # Leaving live-only: re-seed paper book; do not keep stale live/venue.
-            seat_bal = 0.0 if shared else _bot_initial_balance(w, cfg)
+            seat_bal = _bot_initial_balance(w, cfg)
             keep_keys = (
                 "allow_coins",
                 "tag",
@@ -850,7 +821,7 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
                 if v is not None:
                     bots[bid][k] = v
             if shared:
-                _normalize_shared_seat_cash(bots[bid])
+                _mark_shared_seat(bots[bid])
             membership_changed = True
             _queue_live_flatten([bid])
             logger.info(
@@ -898,16 +869,16 @@ def _ensure_bots(data: dict[str, Any]) -> dict[str, Any]:
         ):
             bots[bid].pop(k, None)
 
-    # Shared desk capital (section S): one 1000U base for all sleeve seats
+    # Desk S account capital = Σ seat allocations (copy sizing stays per-seat).
     desk_inits: dict[str, float] = {}
     for w in wallets:
         if not _wallet_shared_desk(w):
             continue
         sec = str(w.get("section") or "S").strip().upper() or "S"
-        desk_inits[sec] = max(desk_inits.get(sec, 0.0), _bot_initial_balance(w, cfg))
+        desk_inits[sec] = desk_inits.get(sec, 0.0) + _bot_initial_balance(w, cfg)
     for sec, want in desk_inits.items():
         _ensure_desk_ledger(data, sec, want if want > 0 else default_bal)
-        logger.info("desk %s shared capital base=%.0fU", sec, want if want > 0 else default_bal)
+        logger.info("desk %s account capital Σalloc=%.0fU", sec, want if want > 0 else default_bal)
 
     # Drop bots removed from the watchlist (old dig ids clutter the desk)
     if want_ids:
@@ -989,16 +960,18 @@ def _aggregate(data: dict[str, Any]) -> dict[str, Any]:
     data["balance"] = round(balance, 4)
     data["equity"] = round(equity, 4)
     data["realized_pnl"] = round(realized, 4)
-    # Desk S: base capital + sleeve PnL
+    # Desk S account layer: seats already hold their cash — do not add s_base again.
     try:
         s_base = float(
             ((data.get("desk_ledgers") or {}).get("S") or {}).get("paper_balance") or 0
         )
     except (TypeError, ValueError, AttributeError):
         s_base = 0.0
+    if s_base <= 0:
+        s_base = float(s_balance)  # fallback when ledger missing
     data["s_base"] = round(s_base, 4)
-    data["s_balance"] = round(s_base + s_balance, 4)
-    data["s_equity"] = round(s_base + s_equity, 4)
+    data["s_balance"] = round(s_balance, 4)
+    data["s_equity"] = round(s_equity, 4)
     data["s_realized_pnl"] = round(s_realized, 4)
     data["s_bot_count"] = sum(
         1 for b in bots.values() if isinstance(b, dict) and _is_shared_desk_bot(b)
@@ -1154,21 +1127,21 @@ def reset_paper() -> dict[str, Any]:
             bid = str(bot.get("id") or "")
             w = wallets.get(bid) or {"id": bid}
             shared = _wallet_shared_desk(w) or _is_shared_desk_bot(bot)
-            bal = 0.0 if shared else _bot_initial_balance(w, cfg)
+            bal = _bot_initial_balance(w, cfg)
             bot.update(_empty_bot(bot, bal))
             bot["paper_balance"] = bal
             if shared:
-                _normalize_shared_seat_cash(bot)
+                _mark_shared_seat(bot)
             bot.pop("risk_halted_at", None)
             if bid:
                 reset_ids.append(bid)
-        # Re-seed shared desk ledgers to watchlist base capital
+        # Re-seed desk account capital = Σ seat allocations
         desk_inits: dict[str, float] = {}
         for w in wallets.values():
             if not _wallet_shared_desk(w):
                 continue
             sec = str(w.get("section") or "S").strip().upper() or "S"
-            desk_inits[sec] = max(desk_inits.get(sec, 0.0), _bot_initial_balance(w, cfg))
+            desk_inits[sec] = desk_inits.get(sec, 0.0) + _bot_initial_balance(w, cfg)
         data["desk_ledgers"] = {}
         for sec, want in desk_inits.items():
             _ensure_desk_ledger(data, sec, want if want > 0 else float(cfg["bot_balance"]))
@@ -1209,7 +1182,7 @@ def reset_paper_bot(bot_id: str) -> dict[str, Any]:
                 "paper_balance": bot.get("paper_balance"),
             }
             shared = _wallet_shared_desk(w) or _is_shared_desk_bot(bot)
-            bal = 0.0 if shared else _bot_initial_balance(w, cfg)
+            bal = _bot_initial_balance(w, cfg)
             keep_allow = bot.get("allow_coins")
             bot.update(_empty_bot({**bot, **w, "id": bid}, bal))
             bot["paper_balance"] = bal
@@ -1217,10 +1190,19 @@ def reset_paper_bot(bot_id: str) -> dict[str, Any]:
             if keep_allow is not None:
                 bot["allow_coins"] = keep_allow
             if shared:
-                _normalize_shared_seat_cash(bot)
+                _mark_shared_seat(bot)
+                # Refresh account-layer Σ after this seat's alloc changes
+                desk_sum = 0.0
+                for ww in wallets.values():
+                    if not _wallet_shared_desk(ww):
+                        continue
+                    sec_w = str(ww.get("section") or "S").strip().upper() or "S"
+                    sec_bot = str(w.get("section") or bot.get("section") or "S").strip().upper() or "S"
+                    if sec_w != sec_bot:
+                        continue
+                    desk_sum += _bot_initial_balance(ww, cfg)
                 sec = str(w.get("section") or bot.get("section") or "S").strip().upper() or "S"
-                want = _bot_initial_balance(w, cfg)
-                _ensure_desk_ledger(data, sec, want if want > 0 else float(cfg["bot_balance"]))
+                _ensure_desk_ledger(data, sec, desk_sum if desk_sum > 0 else float(cfg["bot_balance"]))
             save_paper(data)
             out = load_paper()
     _sync_live_after_paper_reset([bid])
@@ -2328,26 +2310,7 @@ def _max_notional(
     book: dict[str, Any] | None = None,
 ) -> float:
     """Gross notional ceiling for the whole bot: equity × leverage."""
-    if book is not None:
-        eq = _sizing_equity(bot, cfg, book)
-    else:
-        try:
-            eq = float(bot.get("_sizing_equity"))
-        except (TypeError, ValueError):
-            eq = 0.0
-        if eq <= 0:
-            if _is_shared_desk_bot(bot):
-                # Never fall back to seat cash (~0) or default 1000 — require
-                # a prior _copy_ratio(..., book=) or an explicit book arg.
-                eq = 0.0
-            else:
-                _recompute_bot(bot)
-                try:
-                    eq = float(
-                        bot.get("equity") or bot.get("balance") or cfg["bot_balance"]
-                    )
-                except (TypeError, ValueError):
-                    eq = float(cfg.get("bot_balance") or 1000.0)
+    eq = _sizing_equity(bot, cfg, book)
     return max(0.0, eq * float(max(1, lev)))
 
 
@@ -4314,12 +4277,6 @@ def _maybe_risk_halt(
     Flatten open legs, rebase the risk anchor to post-flat equity, and keep
     following — no pause / risk_halted lockout.
     """
-    if _is_shared_desk_bot(bot):
-        # Shared desk S uses desk-level capital; per-seat equity≈PnL would false-trip.
-        if bot.get("risk_halted"):
-            bot["risk_halted"] = False
-            bot.pop("risk_halted_at", None)
-        return None
     if float(cfg.get("daily_loss_pct") or 0) <= 0:
         # Clear any leftover pause from older builds so follow resumes.
         if bot.get("risk_halted"):

@@ -1,8 +1,8 @@
 {
-  "updated": "2026-08-14T10:05+08:00",
+  "updated": "2026-08-14T10:20+08:00",
   "venue": "hyperliquid",
   "mode": "monitor_first_then_dry_run_copy",
-  "note": "Protocol desk: C live + F paper + S shared-1000U sleeve board (4 leaders coin-locked). Live: Railway HL_BITGET_ENABLE_BOTS=bot_c. Desk S paper-only island: sizing=desk_eq/leader_eq. Not financial advice.",
+  "note": "Protocol desk: C live + F paper + S account-island (Σ1000U) with per-seat copy sizing. Live: Railway HL_BITGET_ENABLE_BOTS=bot_c. Desk S: section island vs C/F; each sleeve sizes seat_eq/leader_eq. Not financial advice.",
   "wallets": [
     {
       "id": "bot_c",
@@ -43,20 +43,20 @@
       "id": "bot_s_sol",
       "address": "0xcb735a17a743685df6b520ef0617102087e995da",
       "priority": 201,
-      "paper_balance": 1000,
+      "paper_balance": 250,
       "section": "S",
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
       "copy_current": false,
       "style": "sleeve · SOL",
-      "why": "Desk S main-account style · cb73 SOL only · shared 1000U sizing",
+      "why": "Desk S account island · cb73 SOL only · seat 250U sizing",
       "coins": [
         "SOL"
       ],
       "watch": [
         "SOLUSDT only",
-        "desk S paper=main"
+        "desk S per-seat"
       ],
       "hl_url": "https://app.hyperliquid.xyz/explorer/address/0xcb735a17a743685df6b520ef0617102087e995da",
       "ht_style": "swing_trader",
@@ -71,21 +71,21 @@
       "id": "bot_s_caa",
       "address": "0xcaaacd1e5f394da3e5006edc7c05fd7bfdc5764b",
       "priority": 202,
-      "paper_balance": 1000,
+      "paper_balance": 250,
       "section": "S",
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
       "copy_current": false,
       "style": "sleeve · ETH/BTC",
-      "why": "Desk S main-account style · caaacd ETH+BTC only · shared 1000U sizing",
+      "why": "Desk S account island · caaacd ETH+BTC only · seat 250U sizing",
       "coins": [
         "ETH",
         "BTC"
       ],
       "watch": [
         "ETHUSDT+BTCUSDT only",
-        "desk S paper=main"
+        "desk S per-seat"
       ],
       "hl_url": "https://app.hyperliquid.xyz/explorer/address/0xcaaacd1e5f394da3e5006edc7c05fd7bfdc5764b",
       "ht_style": "swing_trader",
@@ -100,20 +100,20 @@
       "id": "bot_s_cl",
       "address": "0x885327357a8d005c9dfb670583899df6e21f8249",
       "priority": 203,
-      "paper_balance": 1000,
+      "paper_balance": 250,
       "section": "S",
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
       "copy_current": false,
       "style": "sleeve · CL",
-      "why": "Desk S main-account style · 885327 CL only · shared 1000U sizing",
+      "why": "Desk S account island · 885327 CL only · seat 250U sizing",
       "coins": [
         "xyz:CL"
       ],
       "watch": [
         "CLUSDT only",
-        "desk S paper=main"
+        "desk S per-seat"
       ],
       "hl_url": "https://app.hyperliquid.xyz/explorer/address/0x885327357a8d005c9dfb670583899df6e21f8249",
       "ht_style": "swing_trader",
@@ -128,20 +128,20 @@
       "id": "bot_s_mu",
       "address": "0x6807f127eaf85e3d0b9dbc7971bbed2afd041f8d",
       "priority": 204,
-      "paper_balance": 1000,
+      "paper_balance": 250,
       "section": "S",
       "shared_desk_capital": true,
       "paper": true,
       "live": false,
       "copy_current": false,
       "style": "sleeve · MU",
-      "why": "Desk S main-account style · 6807 MU only · shared 1000U sizing",
+      "why": "Desk S account island · 6807 MU only · seat 250U sizing",
       "coins": [
         "xyz:MU"
       ],
       "watch": [
         "MUUSDT only",
-        "desk S paper=main"
+        "desk S per-seat"
       ],
       "hl_url": "https://app.hyperliquid.xyz/explorer/address/0x6807f127eaf85e3d0b9dbc7971bbed2afd041f8d",
       "ht_style": "swing_trader",
