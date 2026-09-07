@@ -25,6 +25,8 @@ def _keep_on_protocol(path: str) -> bool:
         return True
     if path.startswith("/api/hl-short"):
         return True
+    if path.startswith("/api/box"):
+        return True
     if path.startswith("/api/clawby-quant") or path.startswith("/clawby-ui"):
         return True
     if path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/openapi"):

@@ -165,8 +165,15 @@ app.include_router(router)
 from routers.metrics import router as metrics_router
 app.include_router(metrics_router)
 
-from routers.clawby_quant import router as clawby_quant_router
-app.include_router(clawby_quant_router)
+try:
+    from utils.clawby_quant_runtime import embed_enabled
+    from routers.clawby_quant import router as clawby_quant_router
+
+    if embed_enabled():
+        app.include_router(clawby_quant_router)
+        logger.info("clawby-quant routes: /api/clawby-quant/* | /clawby-ui/")
+except Exception as e:
+    logger.warning("clawby-quant router not mounted: %s", e)
 
 try:
     from utils.hl_desk_runtime import desk_enabled
@@ -189,7 +196,7 @@ except Exception as e:
     logger.warning("Box breakout router not mounted: %s", e)
 
 logger.info(
-    "Routes: /api/binance/* | /api/hl-short/* | /api/box/* | /api/clawby-quant/* | /clawby-ui/ | Next K grid UI+API proxied on /"
+    "Routes: /api/binance/* (+ optional /api/hl-short /api/box /api/clawby-quant /clawby-ui / grid proxy)"
 )
 logger.info("Swagger: http://0.0.0.0:%d/docs", PORT)
 logger.info("Binance health: http://0.0.0.0:%d/api/binance/health", PORT)

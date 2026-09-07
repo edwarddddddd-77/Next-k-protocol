@@ -34,8 +34,8 @@ def clawby_port() -> int:
 
 
 def embed_enabled() -> bool:
-    # Default ON when unset; set NEXT_K_CLAWBY_EMBED=0 to disable.
-    raw = (os.getenv("NEXT_K_CLAWBY_EMBED", "1") or "1").strip().lower()
+    # Default OFF; set NEXT_K_CLAWBY_EMBED=1 to start the clawby-quant sidecar.
+    raw = (os.getenv("NEXT_K_CLAWBY_EMBED", "0") or "0").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

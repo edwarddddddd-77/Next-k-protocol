@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 def desk_enabled() -> bool:
-    raw = (os.getenv("HL_DESK_ENABLED") or "1").strip().lower()
+    # Default OFF; set HL_DESK_ENABLED=1 to mount /api/hl-short/* + copy supervisor.
+    raw = (os.getenv("HL_DESK_ENABLED") or "0").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 

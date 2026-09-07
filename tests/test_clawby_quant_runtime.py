@@ -15,10 +15,16 @@ def test_defaults(monkeypatch):
     monkeypatch.delenv("NEXT_K_CLAWBY_EMBED", raising=False)
     monkeypatch.delenv("CLAWBY_QUANT_URL", raising=False)
     monkeypatch.delenv("CLAWBY_QUANT_PORT", raising=False)
-    assert embed_enabled() is True
+    assert embed_enabled() is False
     assert clawby_port() == 8899
     assert clawby_base_url() == "http://127.0.0.1:8899"
     st = status()
     assert st["ok"] is True
+    assert st["embed_enabled"] is False
     assert st["host"] == "next-k-protocol"
     assert "vendor_root" in st
+
+
+def test_embed_opt_in(monkeypatch):
+    monkeypatch.setenv("NEXT_K_CLAWBY_EMBED", "1")
+    assert embed_enabled() is True

@@ -15,8 +15,13 @@ export WANGGE_INTERNAL_URL="${WANGGE_INTERNAL_URL:-http://127.0.0.1:${WANGGE_POR
 # Next K 网格默认暂停；恢复时设 WANGGE_ENABLED=1（并视情况 WANGGE_REQUIRED=1）
 export WANGGE_ENABLED="${WANGGE_ENABLED:-0}"
 export WANGGE_REQUIRED="${WANGGE_REQUIRED:-0}"
-# clawby-quant sidecar — on by default
-export NEXT_K_CLAWBY_EMBED="${NEXT_K_CLAWBY_EMBED:-1}"
+# clawby-quant sidecar — off by default (set NEXT_K_CLAWBY_EMBED=1 to enable)
+export NEXT_K_CLAWBY_EMBED="${NEXT_K_CLAWBY_EMBED:-0}"
+# HL desk / copy — off by default
+export HL_DESK_ENABLED="${HL_DESK_ENABLED:-0}"
+export HL_COPY_ENABLED="${HL_COPY_ENABLED:-0}"
+# Box breakout — on by default
+export NEXT_K_BOX_ENABLED="${NEXT_K_BOX_ENABLED:-1}"
 
 cleanup() {
   if [[ -n "${WANGGE_PID}" ]] && kill -0 "${WANGGE_PID}" 2>/dev/null; then
