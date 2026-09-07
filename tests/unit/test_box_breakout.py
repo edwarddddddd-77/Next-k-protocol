@@ -9,11 +9,19 @@ def test_box_enabled_default():
     assert rt.enabled() is True
 
 
+def test_ashare_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("NEXT_K_BOX_ASHARE_ENABLED", raising=False)
+    assert rt.ashare_enabled() is False
+    out = rt.start_scan("market")
+    assert out.get("status") == "disabled"
+
+
 def test_box_status_shape():
     st = rt.status()
     assert st.get("ok") is True
     assert "data_dir" in st
     assert "scanning" in st
+    assert "ashare_enabled" in st
     assert isinstance(st.get("scan_log"), list)
 
 

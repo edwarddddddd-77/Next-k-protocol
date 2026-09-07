@@ -42,6 +42,12 @@ def enabled() -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+def ashare_enabled() -> bool:
+    """A-share market/quick/pool scans. Default OFF; set NEXT_K_BOX_ASHARE_ENABLED=1 to open."""
+    raw = (os.getenv("NEXT_K_BOX_ASHARE_ENABLED", "0") or "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def vendor_root() -> Path:
     raw = (os.getenv("TRADEGENIUS_BOX_ROOT") or "").strip()
     if raw:
@@ -114,6 +120,7 @@ def status() -> dict[str, Any]:
         return {
             "ok": True,
             "enabled": enabled(),
+            "ashare_enabled": ashare_enabled(),
             "scanning": STATE["scanning"],
             "scan_mode": STATE["scan_mode"],
             "last_scan": STATE["last_scan"],
@@ -148,9 +155,11 @@ def get_crypto() -> dict:
 
 
 def get_hot() -> dict:
+    if not ashare_enabled():
+        return {"hot_topics": [], "ashare_enabled": False}
     sc = _load_scanner()
     hot, _ = sc.fetch_hot_topics()
-    return {"hot_topics": hot}
+    return {"hot_topics": hot, "ashare_enabled": True}
 
 
 def get_config() -> dict:
@@ -208,6 +217,8 @@ def update_pool(action: str, code: str, name: str = "", theme: str = "") -> dict
 
 
 def get_quotes(codes: list[str]) -> dict:
+    if not ashare_enabled():
+        return {}
     sc = _load_scanner()
     out: dict[str, Any] = {}
     need: list[str] = []
@@ -242,6 +253,8 @@ def get_quotes(codes: list[str]) -> dict:
 
 
 def get_kline(code: str, lmt: int = 160, market: str = "stock") -> dict:
+    if market != "crypto" and not ashare_enabled():
+        return {"code": code, "error": "A-share disabled (NEXT_K_BOX_ASHARE_ENABLED=0)"}
     sc = _load_scanner()
     key = ("k", market, code)
     with _lock:
@@ -315,6 +328,12 @@ def _scan_worker(mode: str, top: int | None = None) -> None:
 def start_scan(mode: str = "crypto", top: int | None = None) -> dict:
     if mode not in ("pool", "market", "quick", "crypto"):
         mode = "crypto"
+    if mode in ("pool", "market", "quick") and not ashare_enabled():
+        return {
+            "status": "disabled",
+            "msg": "A股扫描已关闭（NEXT_K_BOX_ASHARE_ENABLED=0）",
+            "mode": mode,
+        }
     with _scan_lock:
         if STATE["scanning"]:
             return {"status": "running", "msg": "扫描进行中", "mode": STATE.get("scan_mode")}

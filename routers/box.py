@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from utils.box_breakout_runtime import (
+    ashare_enabled,
     enabled,
     get_config,
     get_crypto,
@@ -35,7 +36,13 @@ def _require_enabled() -> None:
 @router.get("/health")
 async def box_health():
     st = await run_in_threadpool(runtime_status)
-    return {"ok": True, **{k: st[k] for k in ("enabled", "scanning", "last_scan", "data_dir", "vendor_root")}}
+    return {
+        "ok": True,
+        **{
+            k: st[k]
+            for k in ("enabled", "ashare_enabled", "scanning", "last_scan", "data_dir", "vendor_root")
+        },
+    }
 
 
 @router.get("/status")
@@ -81,13 +88,17 @@ async def box_set_config(request: Request):
 @router.get("/pool")
 async def box_get_pool():
     _require_enabled()
+    if not ashare_enabled():
+        return {"stocks": [], "ashare_enabled": False}
     stocks = await run_in_threadpool(pool_stocks)
-    return {"stocks": stocks}
+    return {"stocks": stocks, "ashare_enabled": True}
 
 
 @router.post("/pool")
 async def box_pool(request: Request):
     _require_enabled()
+    if not ashare_enabled():
+        raise HTTPException(status_code=403, detail="A-share disabled (NEXT_K_BOX_ASHARE_ENABLED=0)")
     body = await request.json()
     action = str(body.get("action") or "")
     code = str(body.get("code") or "")
@@ -102,6 +113,8 @@ async def box_pool(request: Request):
 @router.get("/quotes")
 async def box_quotes(codes: str = Query("", description="comma-separated A-share codes")):
     _require_enabled()
+    if not ashare_enabled():
+        return {}
     code_list = [c for c in codes.split(",") if c.isdigit()][:100]
     return await run_in_threadpool(get_quotes, code_list)
 
@@ -109,13 +122,16 @@ async def box_quotes(codes: str = Query("", description="comma-separated A-share
 @router.get("/kline")
 async def box_kline(
     code: str = Query(...),
-    market: str = Query("stock", description="stock | crypto"),
+    market: str = Query("crypto", description="stock | crypto"),
     lmt: int = Query(160, ge=60, le=500),
 ):
     _require_enabled()
-    market = market if market in ("stock", "crypto") else "stock"
-    if market == "stock" and not code.isdigit():
-        raise HTTPException(status_code=400, detail="stock code must be digits")
+    market = market if market in ("stock", "crypto") else "crypto"
+    if market == "stock":
+        if not ashare_enabled():
+            raise HTTPException(status_code=403, detail="A-share disabled (NEXT_K_BOX_ASHARE_ENABLED=0)")
+        if not code.isdigit():
+            raise HTTPException(status_code=400, detail="stock code must be digits")
     return await run_in_threadpool(get_kline, code, lmt, market)
 
 
@@ -129,6 +145,8 @@ async def box_scan(request: Request):
     if not isinstance(body, dict):
         body = {}
     mode = str(body.get("mode") or "crypto")
+    if mode in ("pool", "market", "quick") and not ashare_enabled():
+        raise HTTPException(status_code=403, detail="A-share disabled (NEXT_K_BOX_ASHARE_ENABLED=0)")
     top = body.get("top")
     top_i = int(top) if top is not None else None
     return await run_in_threadpool(start_scan, mode, top_i)
