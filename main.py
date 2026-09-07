@@ -178,8 +178,18 @@ try:
 except Exception as e:
     logger.warning("HL desk router not mounted: %s", e)
 
+try:
+    from utils.box_breakout_runtime import enabled as box_enabled
+    from routers.box import router as box_router
+
+    if box_enabled():
+        app.include_router(box_router)
+        logger.info("Box breakout routes: /api/box/*")
+except Exception as e:
+    logger.warning("Box breakout router not mounted: %s", e)
+
 logger.info(
-    "Routes: /api/binance/* | /api/hl-short/* | /api/clawby-quant/* | /clawby-ui/ | Next K grid UI+API proxied on /"
+    "Routes: /api/binance/* | /api/hl-short/* | /api/box/* | /api/clawby-quant/* | /clawby-ui/ | Next K grid UI+API proxied on /"
 )
 logger.info("Swagger: http://0.0.0.0:%d/docs", PORT)
 logger.info("Binance health: http://0.0.0.0:%d/api/binance/health", PORT)

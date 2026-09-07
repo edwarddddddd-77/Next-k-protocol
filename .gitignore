@@ -20,6 +20,9 @@ hl_short_term_board.json
 hl_paper_copy.json
 hl_consensus_paper.json
 
+# Box breakout scan results (local DATA_DIR default)
+box_breakout/
+
 vendor/wangge/node_modules/
 vendor/wangge/.env
 vendor/wangge/logs/
@@ -33,3 +36,12 @@ vendor/clawby_quant/.venv/
 vendor/clawby_quant/.env
 vendor/clawby_quant/quantbot.db
 vendor/clawby_quant/**/__pycache__/
+
+# TradeGenuis box-breakout runtime results
+vendor/tradegenius_box/**/__pycache__/
+vendor/tradegenius_box/data/watchlist.json
+vendor/tradegenius_box/data/crypto.json
+vendor/tradegenius_box/data/universe.json
+vendor/tradegenius_box/data/mkt_cache.json
+vendor/tradegenius_box/data/config.json
+vendor/tradegenius_box/data/sectors.json

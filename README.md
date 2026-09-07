@@ -20,6 +20,7 @@ Next K Protocol 是 Next K 交易系统的**执行层服务**，负责：
 next-k-api ──/api/binance/*──► Next K Protocol（币安执行）
 next-k-frontend/hl-short.html ─► next-k-api /api/hl-short/*（原映仓台）
 next-k-frontend/hl-short-protocol.html ─► Protocol /api/hl-short/*（映仓台·P）
+next-k-frontend/box.html ─► Protocol /api/box/*（箱体突破·A股+币圈）
 next-k-frontend/grid.html ─► Protocol / （Next K 网格 · Bitget）
 next-k-frontend/clawby-quant.html ─► Protocol /api/clawby-quant/* + /clawby-ui/
 ```
