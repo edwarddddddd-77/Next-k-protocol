@@ -10,7 +10,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WATCHLIST_NAME = "poly_watchlist.json"
-DEFAULT_PAPER_BALANCE = 5000.0
+DEFAULT_PAPER_BALANCE = 15000.0
 _ADDR_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 

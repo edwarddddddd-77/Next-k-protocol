@@ -11,7 +11,7 @@
       "paper": true,
       "live": false,
       "copy_current": false,
-      "paper_balance": 5000,
+      "paper_balance": 15000,
       "coalesce_sec": 2,
       "style": "poly · events · yes/no",
       "why": "aenews2 — ~80% closed WR on 500-sample, moderate trade rate, paper first",

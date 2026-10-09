@@ -226,7 +226,7 @@ def test_paper_balance_reseed_when_flat(paper_env, tmp_path: Path):
             {
                 "id": "bot_poly",
                 "address": "0x" + "ab" * 20,
-                "paper_balance": 5000,
+                "paper_balance": 15000,
                 "coalesce_sec": 0,
                 "copy_current": False,
             }
@@ -238,9 +238,9 @@ def test_paper_balance_reseed_when_flat(paper_env, tmp_path: Path):
     ppc.ensure_bots_from_watchlist()
     book = ppc.load_paper()
     bot = book["bots"]["bot_poly"]
-    assert bot["paper_balance"] == pytest.approx(5000.0)
-    assert bot["balance"] == pytest.approx(5000.0)
-    assert bot["equity"] == pytest.approx(5000.0)
+    assert bot["paper_balance"] == pytest.approx(15000.0)
+    assert bot["balance"] == pytest.approx(15000.0)
+    assert bot["equity"] == pytest.approx(15000.0)
 
 
 def test_burst_no_longer_dropped_by_debounce(paper_env):
