@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from utils.poly_config import load_watchlist, resolve_data_dir
+from utils.poly_config import DEFAULT_PAPER_BALANCE, load_watchlist, resolve_data_dir
 from utils.poly_data_api import normalize_trade
 
 logger = logging.getLogger(__name__)
@@ -205,7 +205,32 @@ def ensure_bots_from_watchlist() -> dict[str, Any]:
                 created.append(bid)
             else:
                 bot["address"] = w["address"]
-                bot["paper_balance"] = float(w["paper_balance"])
+                new_pb = float(w["paper_balance"])
+                try:
+                    old_pb = float(bot.get("paper_balance") or new_pb)
+                except (TypeError, ValueError):
+                    old_pb = new_pb
+                try:
+                    bal = float(bot.get("balance") or 0)
+                except (TypeError, ValueError):
+                    bal = 0.0
+                bot["paper_balance"] = new_pb
+                # Flat seat: reseed when initial capital changes, or never traded
+                # but cash still stuck on the old default.
+                positions = bot.get("positions") or {}
+                fills = bot.get("fills") or []
+                config_bumped = abs(new_pb - old_pb) > 1e-9
+                stuck_seed = (not fills) and abs(bal - new_pb) > 1e-6
+                if not positions and (config_bumped or stuck_seed):
+                    bot["balance"] = new_pb
+                    bot["equity"] = new_pb
+                    logger.info(
+                        "poly paper_balance reseed bot=%s cash=%.2f pb=%.2f→%.2f",
+                        bid,
+                        bal,
+                        old_pb,
+                        new_pb,
+                    )
                 bot.pop("max_order_usd", None)
                 bot.pop("min_order_usd", None)
                 bot["coalesce_sec"] = float(
@@ -744,7 +769,7 @@ def reset_paper_bot(bot_id: str) -> dict[str, Any]:
         bot = (book.get("bots") or {}).get(bid)
         if not isinstance(bot, dict):
             raise LookupError(f"bot not found: {bid}")
-        bal = float(bot.get("paper_balance") or 1000)
+        bal = float(bot.get("paper_balance") or DEFAULT_PAPER_BALANCE)
         now_ts = int(time.time())
         bot.update(
             {

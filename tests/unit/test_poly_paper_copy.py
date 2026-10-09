@@ -15,6 +15,8 @@ from utils.poly_data_api import normalize_trade
 @pytest.fixture()
 def paper_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    watch_path = tmp_path / "poly_watchlist.json"
+    monkeypatch.setenv("POLY_WATCHLIST_PATH", str(watch_path))
     monkeypatch.setenv("POLY_TARGET_WALLET", "0x" + "ab" * 20)
     watch = {
         "venue": "polymarket",
@@ -28,9 +30,7 @@ def paper_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             }
         ],
     }
-    (tmp_path / "poly_watchlist.json").write_text(
-        json.dumps(watch), encoding="utf-8"
-    )
+    watch_path.write_text(json.dumps(watch), encoding="utf-8")
     ppc._slices.clear()
     ppc.ensure_bots_from_watchlist()
     return tmp_path
@@ -157,6 +157,39 @@ def test_normalize_rejects_zero_price():
 def test_new_bot_gets_baseline(paper_env):
     book = ppc.load_paper()
     assert book["bots"]["bot_poly"].get("baseline_ts") is not None
+
+
+def test_paper_balance_reseed_when_flat(paper_env, tmp_path: Path):
+    book = ppc.load_paper()
+    bot = book["bots"]["bot_poly"]
+    assert bot["balance"] == pytest.approx(1000.0)
+    bot["paper_balance"] = 1000.0
+    bot["balance"] = 1000.0
+    bot["positions"] = {}
+    bot["fills"] = []
+    ppc.save_paper(book)
+
+    watch = {
+        "venue": "polymarket",
+        "wallets": [
+            {
+                "id": "bot_poly",
+                "address": "0x" + "ab" * 20,
+                "paper_balance": 5000,
+                "coalesce_sec": 0,
+                "copy_current": False,
+            }
+        ],
+    }
+    (tmp_path / "poly_watchlist.json").write_text(
+        json.dumps(watch), encoding="utf-8"
+    )
+    ppc.ensure_bots_from_watchlist()
+    book = ppc.load_paper()
+    bot = book["bots"]["bot_poly"]
+    assert bot["paper_balance"] == pytest.approx(5000.0)
+    assert bot["balance"] == pytest.approx(5000.0)
+    assert bot["equity"] == pytest.approx(5000.0)
 
 
 def test_burst_no_longer_dropped_by_debounce(paper_env):

@@ -10,6 +10,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WATCHLIST_NAME = "poly_watchlist.json"
+DEFAULT_PAPER_BALANCE = 5000.0
 _ADDR_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 
@@ -29,10 +30,17 @@ def resolve_data_dir() -> Path:
 
 
 def _watchlist_path() -> Path:
+    """Prefer repo / POLY_WATCHLIST_PATH so deploys override a stale DATA_DIR copy."""
+    env = (os.getenv("POLY_WATCHLIST_PATH") or "").strip()
+    if env:
+        return Path(env).expanduser()
+    root = PROJECT_ROOT / WATCHLIST_NAME
+    if root.is_file():
+        return root
     data = resolve_data_dir() / WATCHLIST_NAME
     if data.is_file():
         return data
-    return PROJECT_ROOT / WATCHLIST_NAME
+    return root
 
 
 def normalize_address(raw: Any) -> str:
@@ -87,7 +95,11 @@ def load_watchlist() -> list[dict[str, Any]]:
         row = dict(w)
         row["address"] = addr
         row["id"] = str(w.get("id") or f"bot_{addr[:8]}").strip() or f"bot_{addr[:8]}"
-        row["paper_balance"] = float(w.get("paper_balance") or 1000)
+        row["paper_balance"] = float(
+            w["paper_balance"]
+            if w.get("paper_balance") is not None
+            else (os.getenv("POLY_PAPER_BALANCE") or DEFAULT_PAPER_BALANCE)
+        )
         # coalesce_sec: merge same-market same-side burst into one copy.
         # 0 = copy every distinct tx immediately. debounce_sec is legacy alias.
         coalesce = w.get("coalesce_sec")
@@ -111,7 +123,9 @@ def load_watchlist() -> list[dict[str, Any]]:
             {
                 "id": "bot_poly",
                 "address": env_addr,
-                "paper_balance": float(os.getenv("POLY_PAPER_BALANCE") or 1000),
+                "paper_balance": float(
+                    os.getenv("POLY_PAPER_BALANCE") or DEFAULT_PAPER_BALANCE
+                ),
                 "coalesce_sec": float(
                     os.getenv("POLY_COALESCE_SEC")
                     if os.getenv("POLY_COALESCE_SEC") not in (None, "")
