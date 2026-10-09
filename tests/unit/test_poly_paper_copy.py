@@ -23,8 +23,6 @@ def paper_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 "id": "bot_poly",
                 "address": "0x" + "ab" * 20,
                 "paper_balance": 1000,
-                "max_order_usd": 100,
-                "min_order_usd": 1,
                 "coalesce_sec": 0,
                 "copy_current": False,
             }
@@ -114,22 +112,22 @@ def test_sell_without_position_skipped(paper_env):
     assert out["skipped"][0]["reason"] == "no_position_to_sell"
 
 
-def test_max_order_usd_cap(paper_env):
+def test_ratio_uncapped(paper_env):
+    """Pure equity ratio — no min/max order USD clamp."""
     ppc.set_baseline_if_needed("bot_poly", int(time.time()) - 10)
     book = ppc.load_paper()
     bot = book["bots"]["bot_poly"]
     bot["leader_equity"] = 1000.0  # ratio 1.0
-    bot["max_order_usd"] = 20.0
     bot["baseline_ts"] = int(time.time()) - 10
     ppc.save_paper(book)
 
-    # 100 shares * $0.5 = $50 leader → would be $50 ours, capped to $20 → 40 shares
+    # 100 shares @ $0.5 → $50 ours at ratio 1.0 (full size, not capped)
     raw = _trade(size=100, price=0.5, transactionHash="0x" + "44" * 32)
     out = ppc.ingest_trade(raw, source="test")
     assert out.get("applied"), out
     book = ppc.load_paper()
     pos = list(book["bots"]["bot_poly"]["positions"].values())[0]
-    assert pos["shares"] == pytest.approx(40.0)
+    assert pos["shares"] == pytest.approx(100.0)
 
 
 def test_leader_equity_unknown_is_retriable(paper_env):
@@ -195,11 +193,9 @@ def test_coalesce_merges_burst(paper_env, monkeypatch):
     bot["leader_equity"] = 10_000.0
     bot["baseline_ts"] = now - 10
     bot["coalesce_sec"] = 2
-    bot["min_order_usd"] = 1
     ppc.save_paper(book)
 
-    # Three tiny leader clips that individually would be dust at ratio 0.1
-    # if min were high — here they merge: 30+40+50 = 120 leader → 12 our shares.
+    # Three clips merge: 30+40+50 = 120 leader → 12 our shares at ratio 0.1.
     for i, sz in enumerate((30, 40, 50)):
         raw = _trade(
             size=sz,

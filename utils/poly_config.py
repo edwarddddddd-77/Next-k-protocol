@@ -88,12 +88,6 @@ def load_watchlist() -> list[dict[str, Any]]:
         row["address"] = addr
         row["id"] = str(w.get("id") or f"bot_{addr[:8]}").strip() or f"bot_{addr[:8]}"
         row["paper_balance"] = float(w.get("paper_balance") or 1000)
-        row["max_order_usd"] = float(
-            w.get("max_order_usd") or os.getenv("POLY_MAX_ORDER_USD") or 50
-        )
-        row["min_order_usd"] = float(
-            w.get("min_order_usd") or os.getenv("POLY_MIN_ORDER_USD") or 1
-        )
         # coalesce_sec: merge same-market same-side burst into one copy.
         # 0 = copy every distinct tx immediately. debounce_sec is legacy alias.
         coalesce = w.get("coalesce_sec")
@@ -118,8 +112,6 @@ def load_watchlist() -> list[dict[str, Any]]:
                 "id": "bot_poly",
                 "address": env_addr,
                 "paper_balance": float(os.getenv("POLY_PAPER_BALANCE") or 1000),
-                "max_order_usd": float(os.getenv("POLY_MAX_ORDER_USD") or 50),
-                "min_order_usd": float(os.getenv("POLY_MIN_ORDER_USD") or 1),
                 "coalesce_sec": float(
                     os.getenv("POLY_COALESCE_SEC")
                     if os.getenv("POLY_COALESCE_SEC") not in (None, "")

@@ -1,13 +1,12 @@
 """Polymarket paper copy — fill-follow only (copy_current=false).
 
 Position model: market (conditionId) + Yes/No (outcome) + shares.
-Sizing: our_delta = leader_fill_size × (our_equity / leader_equity).
-Guards: baseline (no history), tx-hash dedupe, burst coalesce, min/max notional.
+Sizing: our_delta = leader_fill_size × (our_equity / leader_equity) — no min/max caps.
+Guards: baseline (no history), tx-hash dedupe, burst coalesce, cash for buys.
 
 Burst handling (open-source style):
   • Deduplicate by transaction hash (+ asset + side), not by time window drops.
-  • Coalesce same bot/market/side fills within coalesce_sec into one copy so
-    dust clips in a sweep still sum past min_order_usd.
+  • Coalesce same bot/market/side fills within coalesce_sec into one copy.
 """
 
 from __future__ import annotations
@@ -175,13 +174,11 @@ def _new_bot(bid: str, w: dict[str, Any]) -> dict[str, Any]:
         "copy_ratio": None,
         "leader_equity": None,
         "leader_equity_at": None,
-                    "max_order_usd": w["max_order_usd"],
-                    "min_order_usd": w["min_order_usd"],
-                    "coalesce_sec": float(
-                        2 if w.get("coalesce_sec") is None else w.get("coalesce_sec")
-                    ),
-                    "debounce_sec": 0.0,
-                    "copy_current": False,
+        "coalesce_sec": float(
+            2 if w.get("coalesce_sec") is None else w.get("coalesce_sec")
+        ),
+        "debounce_sec": 0.0,
+        "copy_current": False,
         "baseline_ts": None,
         "baseline_set_at": None,
         "positions": {},
@@ -209,8 +206,8 @@ def ensure_bots_from_watchlist() -> dict[str, Any]:
             else:
                 bot["address"] = w["address"]
                 bot["paper_balance"] = float(w["paper_balance"])
-                bot["max_order_usd"] = float(w["max_order_usd"])
-                bot["min_order_usd"] = float(w["min_order_usd"])
+                bot.pop("max_order_usd", None)
+                bot.pop("min_order_usd", None)
                 bot["coalesce_sec"] = float(
                     2 if w.get("coalesce_sec") is None else w.get("coalesce_sec")
                 )
@@ -575,21 +572,9 @@ def _apply_to_bot(bot: dict[str, Any], trade: dict[str, Any]) -> dict[str, Any]:
 
     raw_shares = float(trade["size"]) * ratio
     notional = raw_shares * price
-    min_usd = float(bot.get("min_order_usd") or 1)
-    max_usd = float(bot.get("max_order_usd") or 50)
-
-    if notional < min_usd:
-        _record_skip(bot, trade, "dust_min_usd")
-        return {
-            "bot_id": bid,
-            "copied": False,
-            "reason": "dust_min_usd",
-            "notional": notional,
-        }
-
-    if notional > max_usd:
-        raw_shares = max_usd / price
-        notional = max_usd
+    if raw_shares <= 0 or notional <= 0:
+        _record_skip(bot, trade, "zero_size")
+        return {"bot_id": bid, "copied": False, "reason": "zero_size", "notional": notional}
 
     side = trade["side"]
     key = _pos_key(trade)
@@ -620,7 +605,7 @@ def _apply_to_bot(bot: dict[str, Any], trade: dict[str, Any]) -> dict[str, Any]:
             raw_shares = cash / price
             cost = raw_shares * price
             notional = cost
-        if raw_shares <= 0 or cost < min_usd:
+        if raw_shares <= 0 or cost <= 0:
             _record_skip(bot, trade, "insufficient_cash")
             return {"bot_id": bid, "copied": False, "reason": "insufficient_cash"}
         new_shares = shares + raw_shares
@@ -722,8 +707,6 @@ def slim_paper_for_api(book: dict[str, Any] | None = None) -> dict[str, Any]:
                     "copy_ratio": bot.get("copy_ratio"),
                     "leader_equity": bot.get("leader_equity"),
                     "baseline_ts": bot.get("baseline_ts"),
-                    "max_order_usd": bot.get("max_order_usd"),
-                    "min_order_usd": bot.get("min_order_usd"),
                     "coalesce_sec": bot.get("coalesce_sec"),
                     "debounce_sec": 0,
                     "positions": list((bot.get("positions") or {}).values()),
