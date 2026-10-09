@@ -751,6 +751,190 @@ def slim_paper_for_api(book: dict[str, Any] | None = None) -> dict[str, Any]:
         }
 
 
+def _leader_pos_key(row: dict[str, Any]) -> str:
+    asset = str(row.get("asset") or "").strip()
+    if asset:
+        return f"asset:{asset}"
+    cid = str(row.get("conditionId") or row.get("condition_id") or "").strip()
+    outcome = str(row.get("outcome") or "").strip()
+    return f"mkt:{cid}:{outcome}"
+
+
+def sync_leader_positions(bot_id: str | None = None) -> dict[str, Any]:
+    """One-shot mirror: open every leader position × (our_equity / leader_equity).
+
+    Preserves seat equity (cash + mark). Does not change baseline — fill-follow continues.
+    """
+    from utils.poly_data_api import fetch_positions, fetch_portfolio_value
+
+    ensure_bots_from_watchlist()
+    with _lock:
+        book = load_paper()
+        bots = book.get("bots") or {}
+        if bot_id:
+            bid = str(bot_id).strip()
+            targets = [bots[bid]] if isinstance(bots.get(bid), dict) else []
+            if not targets:
+                raise LookupError(f"bot not found: {bid}")
+        else:
+            targets = [b for b in bots.values() if isinstance(b, dict)]
+
+    summaries: list[dict[str, Any]] = []
+    for bot_snap in targets:
+        bid = str(bot_snap.get("id") or "")
+        addr = str(bot_snap.get("address") or "")
+        if not addr:
+            summaries.append({"bot_id": bid, "ok": False, "reason": "no_address"})
+            continue
+        leader_eq = fetch_portfolio_value(addr)
+        rows = fetch_positions(addr, limit=500)
+        with _lock:
+            book = load_paper()
+            bot = (book.get("bots") or {}).get(bid)
+            if not isinstance(bot, dict):
+                summaries.append({"bot_id": bid, "ok": False, "reason": "bot_gone"})
+                continue
+            if leader_eq <= 0:
+                bot["leader_equity"] = leader_eq
+                bot["leader_equity_at"] = _now_iso()
+                save_paper(book)
+                summaries.append(
+                    {"bot_id": bid, "ok": False, "reason": "leader_equity_unknown"}
+                )
+                continue
+
+            our_eq = _bot_equity(bot)
+            if our_eq <= 0:
+                summaries.append({"bot_id": bid, "ok": False, "reason": "zero_equity"})
+                continue
+            ratio = our_eq / leader_eq
+            bot["leader_equity"] = leader_eq
+            bot["leader_equity_at"] = _now_iso()
+            bot["copy_ratio"] = ratio
+            _leader_equity_mono[bid] = time.monotonic()
+
+            built: list[dict[str, Any]] = []
+            for row in rows:
+                try:
+                    leader_sz = float(row.get("size") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if leader_sz <= 0:
+                    continue
+                try:
+                    avg = float(row.get("avgPrice") or row.get("avg_price") or 0)
+                except (TypeError, ValueError):
+                    avg = 0.0
+                try:
+                    mark = float(
+                        row.get("curPrice")
+                        or row.get("cur_price")
+                        or avg
+                        or 0
+                    )
+                except (TypeError, ValueError):
+                    mark = avg
+                if mark <= 0 and avg <= 0:
+                    continue
+                if mark <= 0:
+                    mark = avg
+                if avg <= 0:
+                    avg = mark
+                our_sz = leader_sz * ratio
+                if our_sz <= 0:
+                    continue
+                key = _leader_pos_key(row)
+                built.append(
+                    {
+                        "key": key,
+                        "asset": str(row.get("asset") or ""),
+                        "condition_id": str(
+                            row.get("conditionId") or row.get("condition_id") or ""
+                        ),
+                        "outcome": str(row.get("outcome") or ""),
+                        "title": str(row.get("title") or ""),
+                        "slug": str(row.get("slug") or ""),
+                        "shares": our_sz,
+                        "avg_price": avg,
+                        "mark": mark,
+                        "leader_size": leader_sz,
+                    }
+                )
+
+            mark_val = sum(float(p["shares"]) * float(p["mark"]) for p in built)
+            scale = 1.0
+            if mark_val > our_eq + 1e-9 and mark_val > 0:
+                scale = our_eq / mark_val
+                for p in built:
+                    p["shares"] = float(p["shares"]) * scale
+                mark_val = our_eq
+
+            positions: dict[str, Any] = {}
+            for p in built:
+                positions[p["key"]] = {
+                    "key": p["key"],
+                    "asset": p["asset"],
+                    "condition_id": p["condition_id"],
+                    "outcome": p["outcome"],
+                    "title": p["title"],
+                    "slug": p["slug"],
+                    "shares": p["shares"],
+                    "avg_price": p["avg_price"],
+                    "mark": p["mark"],
+                }
+
+            bot["positions"] = positions
+            bot["balance"] = max(0.0, our_eq - mark_val)
+            _bot_equity(bot)
+            _slices.pop(bid, None)
+
+            fills = bot.setdefault("fills", [])
+            fills.append(
+                {
+                    "at": _now_iso(),
+                    "source": "sync_positions",
+                    "side": "SYNC",
+                    "shares": sum(float(p["shares"]) for p in built),
+                    "price": 0,
+                    "notional": mark_val,
+                    "ratio": ratio,
+                    "coalesce_n": len(built),
+                    "title": f"sync {len(built)} leader positions",
+                }
+            )
+            if len(fills) > 500:
+                del fills[:-500]
+            stats = bot.setdefault("stats", {})
+            stats["last_sync_at"] = _now_iso()
+            stats["last_sync_positions"] = len(built)
+            save_paper(book)
+            summaries.append(
+                {
+                    "bot_id": bid,
+                    "ok": True,
+                    "ratio": ratio,
+                    "leader_equity": leader_eq,
+                    "our_equity": bot.get("equity"),
+                    "positions": len(built),
+                    "leader_rows": len(rows),
+                    "mark_value": mark_val,
+                    "cash": bot.get("balance"),
+                    "scale": scale,
+                }
+            )
+            logger.info(
+                "poly sync_positions bot=%s n=%s/%s ratio=%.6g mark=%.2f cash=%.2f",
+                bid,
+                len(built),
+                len(rows),
+                ratio,
+                mark_val,
+                float(bot.get("balance") or 0),
+            )
+
+    return {"ok": True, "synced": summaries, "paper": slim_paper_for_api()}
+
+
 def reset_paper() -> dict[str, Any]:
     with _lock:
         _leader_equity_mono.clear()

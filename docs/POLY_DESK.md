@@ -28,7 +28,7 @@
 
 ## 路由
 
-`/api/poly-copy/watchlist|paper|copy/status|leader`
+`/api/poly-copy/watchlist|paper|paper/sync-positions|copy/status|leader`
 
 ## 前端
 

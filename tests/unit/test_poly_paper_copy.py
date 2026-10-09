@@ -159,6 +159,57 @@ def test_new_bot_gets_baseline(paper_env):
     assert book["bots"]["bot_poly"].get("baseline_ts") is not None
 
 
+def test_sync_leader_positions_scales_book(paper_env, monkeypatch: pytest.MonkeyPatch):
+    book = ppc.load_paper()
+    bot = book["bots"]["bot_poly"]
+    bot["balance"] = 1000.0
+    bot["equity"] = 1000.0
+    bot["positions"] = {}
+    ppc.save_paper(book)
+
+    monkeypatch.setattr(
+        "utils.poly_data_api.fetch_portfolio_value",
+        lambda addr: 10_000.0,
+    )
+    monkeypatch.setattr(
+        "utils.poly_data_api.fetch_positions",
+        lambda addr, limit=500: [
+            {
+                "asset": "tok-a",
+                "conditionId": "0x" + "cd" * 32,
+                "outcome": "Yes",
+                "size": 100,
+                "avgPrice": 0.4,
+                "curPrice": 0.5,
+                "title": "Market A",
+                "slug": "a",
+            },
+            {
+                "asset": "tok-b",
+                "conditionId": "0x" + "ef" * 32,
+                "outcome": "No",
+                "size": 200,
+                "avgPrice": 0.2,
+                "curPrice": 0.25,
+                "title": "Market B",
+                "slug": "b",
+            },
+        ],
+    )
+    out = ppc.sync_leader_positions("bot_poly")
+    assert out["ok"]
+    assert out["synced"][0]["positions"] == 2
+    book = ppc.load_paper()
+    bot = book["bots"]["bot_poly"]
+    # ratio 0.1 → 10 and 20 shares
+    by_asset = {p["asset"]: p for p in bot["positions"].values()}
+    assert by_asset["tok-a"]["shares"] == pytest.approx(10.0)
+    assert by_asset["tok-b"]["shares"] == pytest.approx(20.0)
+    # mark value = 10*0.5 + 20*0.25 = 10; cash = 990
+    assert bot["balance"] == pytest.approx(990.0)
+    assert bot["equity"] == pytest.approx(1000.0)
+
+
 def test_paper_balance_reseed_when_flat(paper_env, tmp_path: Path):
     book = ppc.load_paper()
     bot = book["bots"]["bot_poly"]

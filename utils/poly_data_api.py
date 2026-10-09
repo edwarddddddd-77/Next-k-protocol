@@ -44,7 +44,7 @@ def fetch_activity_trades(
     return [x for x in data if isinstance(x, dict)]
 
 
-def fetch_positions(user: str, *, limit: int = 100) -> list[dict[str, Any]]:
+def fetch_positions(user: str, *, limit: int = 500) -> list[dict[str, Any]]:
     params = {
         "user": user,
         "sizeThreshold": 0,

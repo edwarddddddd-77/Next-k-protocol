@@ -45,6 +45,20 @@ async def reset_paper_ledger():
     return await run_in_threadpool(reset_paper)
 
 
+@router.post("/paper/sync-positions")
+async def sync_paper_positions(bot_id: str | None = Query(None)):
+    """One-shot: mirror all leader open positions at equity ratio."""
+    from utils.poly_paper_copy import sync_leader_positions
+
+    try:
+        return await run_in_threadpool(sync_leader_positions, bot_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("poly sync-positions failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/paper/reset/{bot_id}")
 async def reset_paper_bot_ledger(bot_id: str):
     from utils.poly_paper_copy import reset_paper_bot
@@ -83,7 +97,7 @@ async def get_leader(
             if refresh:
                 refresh_leader_equity(w["id"], force=True)
             value = fetch_portfolio_value(w["address"])
-            positions = fetch_positions(w["address"], limit=100)
+            positions = fetch_positions(w["address"], limit=500)
             out.append(
                 {
                     "id": w["id"],
