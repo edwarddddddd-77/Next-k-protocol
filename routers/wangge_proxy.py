@@ -23,7 +23,7 @@ def _upstream() -> str:
 def _keep_on_protocol(path: str) -> bool:
     if path.startswith("/api/binance"):
         return True
-    if path.startswith("/api/hl-short"):
+    if path.startswith("/api/poly-copy"):
         return True
     if path.startswith("/api/box"):
         return True

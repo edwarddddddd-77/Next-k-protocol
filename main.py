@@ -107,21 +107,21 @@ async def lifespan(app: FastAPI):
         logger.warning("clawby-quant sidecar startup skipped: %s", e)
 
     try:
-        from utils.hl_desk_runtime import start_hl_desk
+        from utils.poly_desk_runtime import start_poly_desk
 
-        start_hl_desk(app)
+        start_poly_desk(app)
     except Exception as e:
-        logger.warning("HL desk startup skipped: %s", e)
+        logger.warning("poly desk startup skipped: %s", e)
 
     yield
     reconcile_task.cancel()
 
     try:
-        from utils.hl_desk_runtime import stop_hl_desk
+        from utils.poly_desk_runtime import stop_poly_desk
 
-        stop_hl_desk(app)
+        stop_poly_desk(app)
     except Exception as e:
-        logger.warning("HL desk shutdown skipped: %s", e)
+        logger.warning("poly desk shutdown skipped: %s", e)
 
     try:
         from utils.clawby_quant_runtime import stop_sidecar
@@ -136,7 +136,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Next K Protocol",
     description=(
-        "币安合约实盘 + HL 映仓台 + 可选 clawby-quant / Next K 网格代理。"
+        "币安合约实盘 + Polymarket 跟单台 + 可选 clawby-quant / Next K 网格代理。"
     ),
     version="1.2.0",
     lifespan=lifespan,
@@ -176,14 +176,14 @@ except Exception as e:
     logger.warning("clawby-quant router not mounted: %s", e)
 
 try:
-    from utils.hl_desk_runtime import desk_enabled
-    from routers.hl_short import router as hl_short_router
+    from utils.poly_desk_runtime import desk_enabled as poly_desk_enabled
+    from routers.poly_copy import router as poly_copy_router
 
-    if desk_enabled():
-        app.include_router(hl_short_router)
-        logger.info("HL desk routes: /api/hl-short/*")
+    if poly_desk_enabled():
+        app.include_router(poly_copy_router)
+        logger.info("poly desk routes: /api/poly-copy/*")
 except Exception as e:
-    logger.warning("HL desk router not mounted: %s", e)
+    logger.warning("poly desk router not mounted: %s", e)
 
 try:
     from utils.box_breakout_runtime import enabled as box_enabled
@@ -196,7 +196,7 @@ except Exception as e:
     logger.warning("Box breakout router not mounted: %s", e)
 
 logger.info(
-    "Routes: /api/binance/* (+ optional /api/hl-short /api/box /api/clawby-quant /clawby-ui / grid proxy)"
+    "Routes: /api/binance/* (+ optional /api/poly-copy /api/box /api/clawby-quant /clawby-ui / grid proxy)"
 )
 logger.info("Swagger: http://0.0.0.0:%d/docs", PORT)
 logger.info("Binance health: http://0.0.0.0:%d/api/binance/health", PORT)

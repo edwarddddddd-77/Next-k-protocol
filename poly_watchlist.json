@@ -1,0 +1,23 @@
+{
+  "updated": "2026-10-09",
+  "venue": "polymarket",
+  "mode": "paper_copy_fills_only",
+  "note": "copy_current=false: follow new fills only, never backfill mid-book. Leader is Polymarket proxy address. Not financial advice.",
+  "wallets": [
+    {
+      "id": "bot_aenews2",
+      "address": "0x44c1dfe43260c94ed4f1d00de2e1f80fb113ebc1",
+      "enabled": true,
+      "paper": true,
+      "live": false,
+      "copy_current": false,
+      "paper_balance": 1000,
+      "max_order_usd": 50,
+      "min_order_usd": 1,
+      "debounce_sec": 2,
+      "style": "poly · events · yes/no",
+      "why": "aenews2 — ~80% closed WR on 500-sample, moderate trade rate, paper first",
+      "profile": "https://polymarket.com/profile/0x44c1dfe43260c94ed4f1d00de2e1f80fb113ebc1"
+    }
+  ]
+}

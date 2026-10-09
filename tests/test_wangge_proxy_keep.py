@@ -1,14 +1,14 @@
-"""Wangge proxy must keep Protocol APIs (incl. HL desk) on FastAPI."""
+"""Wangge proxy must keep Protocol APIs (incl. poly desk) on FastAPI."""
 
 from __future__ import annotations
 
 from routers.wangge_proxy import _keep_on_protocol
 
 
-def test_keep_binance_and_hl_short():
+def test_keep_binance_and_poly_copy():
     assert _keep_on_protocol("/api/binance/health") is True
-    assert _keep_on_protocol("/api/hl-short/paper") is True
-    assert _keep_on_protocol("/api/hl-short/copy/status") is True
+    assert _keep_on_protocol("/api/poly-copy/paper") is True
+    assert _keep_on_protocol("/api/poly-copy/copy/status") is True
     assert _keep_on_protocol("/api/clawby-quant/status") is True
     assert _keep_on_protocol("/docs") is True
 
