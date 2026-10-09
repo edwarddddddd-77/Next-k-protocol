@@ -114,16 +114,20 @@ def normalize_trade(raw: dict[str, Any], *, source: str = "data_api") -> dict[st
         usdc_size = float(usdc) if usdc is not None else size * price
     except (TypeError, ValueError):
         usdc_size = size * price
-    dedupe = "|".join(
-        [
-            tx or "notx",
-            asset or condition_id or "noasset",
-            side,
-            f"{size:.8g}",
-            f"{price:.8g}",
-            str(ts),
-        ]
-    )
+    # Prefer tx+asset+side (open-source style). Fall back when hash missing.
+    if tx:
+        dedupe = "|".join([tx.lower(), asset or condition_id or "noasset", side])
+    else:
+        dedupe = "|".join(
+            [
+                "notx",
+                asset or condition_id or "noasset",
+                side,
+                f"{size:.8g}",
+                f"{price:.8g}",
+                str(ts),
+            ]
+        )
     return {
         "dedupe_key": dedupe,
         "transaction_hash": tx,

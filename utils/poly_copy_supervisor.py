@@ -97,6 +97,12 @@ class PolyCopySupervisor:
                 logger.warning("poly copy stop: %s", exc)
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=8)
+        try:
+            from utils.poly_paper_copy import flush_coalesce_slices
+
+            flush_coalesce_slices(force=True)
+        except Exception as exc:
+            logger.warning("poly coalesce flush on stop: %s", exc)
         with self._lock:
             self._status["running"] = False
 
@@ -235,6 +241,10 @@ class PolyCopySupervisor:
             return
         with self._lock:
             self._status["fills_seen"] = int(self._status.get("fills_seen") or 0) + 1
+            if result.get("buffered"):
+                self._status["fills_buffered"] = int(
+                    self._status.get("fills_buffered") or 0
+                ) + len(result["buffered"])
             if result.get("applied"):
                 self._status["fills_copied"] = int(
                     self._status.get("fills_copied") or 0
@@ -246,6 +256,7 @@ class PolyCopySupervisor:
         from utils.poly_data_api import fetch_activity_trades
         from utils.poly_paper_copy import (
             bot_baseline_ts,
+            flush_coalesce_slices,
             paper_config,
             refresh_leader_equity,
             set_baseline_if_needed,
@@ -271,6 +282,18 @@ class PolyCopySupervisor:
                     )
                     for row in reversed(rows):
                         await self._handle_trade(row, source="poll")
+                # Close burst windows that went quiet.
+                flushed = await asyncio.to_thread(flush_coalesce_slices, False)
+                if flushed:
+                    with self._lock:
+                        n = sum(1 for r in flushed if r.get("copied"))
+                        if n:
+                            self._status["fills_copied"] = int(
+                                self._status.get("fills_copied") or 0
+                            ) + n
+                            self._status["last_fill_at"] = datetime.now(
+                                timezone.utc
+                            ).isoformat()
                 with self._lock:
                     self._status["poll_cycles"] = (
                         int(self._status.get("poll_cycles") or 0) + 1

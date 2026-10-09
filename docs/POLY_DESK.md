@@ -15,7 +15,9 @@
 
 - 只跟**新成交**（`copy_current=false`），启动时记 baseline，不补历史仓
 - 缩仓：`our_size = leader_trade_size × (our_equity / leader_equity)`
-- 防抖、单笔上限（`max_order_usd`）、同一笔成交（`transactionHash`+asset+side+size+ts）不跟两次
+- 去重：优先 `transactionHash` + asset + side（不按时间窗丢单）
+- 连发：同市场同方向在 `coalesce_sec`（默认 2s）内合并成一笔再跟
+- 单笔上限：`max_order_usd`
 - 仓位键：`conditionId` + `outcome`（Yes/No）+ `asset`（token id）
 
 ## 数据路径

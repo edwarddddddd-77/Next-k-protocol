@@ -2,7 +2,12 @@
 
 Position model: market (conditionId) + Yes/No (outcome) + shares.
 Sizing: our_delta = leader_fill_size × (our_equity / leader_equity).
-Guards: baseline (no history backfill), dedupe, debounce, min/max notional.
+Guards: baseline (no history), tx-hash dedupe, burst coalesce, min/max notional.
+
+Burst handling (open-source style):
+  • Deduplicate by transaction hash (+ asset + side), not by time window drops.
+  • Coalesce same bot/market/side fills within coalesce_sec into one copy so
+    dust clips in a sweep still sum past min_order_usd.
 """
 
 from __future__ import annotations
@@ -24,9 +29,10 @@ logger = logging.getLogger(__name__)
 
 PAPER_NAME = "poly_paper_copy.json"
 _lock = threading.Lock()
-_last_fill_mono: dict[str, float] = {}  # bot_id -> monotonic
 _leader_equity_mono: dict[str, float] = {}  # bot_id -> monotonic (not persisted)
 _seen_cache: set[str] | None = None
+# bot_id -> open coalesce slice
+_slices: dict[str, dict[str, Any]] = {}
 
 # Skip reasons that must not consume the dedupe slot (retry on later poll/WS).
 _RETRIABLE_SKIP = frozenset({"no_baseline", "leader_equity_unknown"})
@@ -46,6 +52,11 @@ def paper_config() -> dict[str, Any]:
         "live": _env_bool("POLY_LIVE", False),
         "poll_sec": float(os.getenv("POLY_POLL_SEC") or 4),
         "value_ttl_sec": float(os.getenv("POLY_VALUE_TTL_SEC") or 30),
+        "coalesce_sec": float(
+            os.getenv("POLY_COALESCE_SEC")
+            if os.getenv("POLY_COALESCE_SEC") not in (None, "")
+            else 2
+        ),
     }
 
 
@@ -164,10 +175,13 @@ def _new_bot(bid: str, w: dict[str, Any]) -> dict[str, Any]:
         "copy_ratio": None,
         "leader_equity": None,
         "leader_equity_at": None,
-        "max_order_usd": w["max_order_usd"],
-        "min_order_usd": w["min_order_usd"],
-        "debounce_sec": w["debounce_sec"],
-        "copy_current": False,
+                    "max_order_usd": w["max_order_usd"],
+                    "min_order_usd": w["min_order_usd"],
+                    "coalesce_sec": float(
+                        2 if w.get("coalesce_sec") is None else w.get("coalesce_sec")
+                    ),
+                    "debounce_sec": 0.0,
+                    "copy_current": False,
         "baseline_ts": None,
         "baseline_set_at": None,
         "positions": {},
@@ -197,7 +211,10 @@ def ensure_bots_from_watchlist() -> dict[str, Any]:
                 bot["paper_balance"] = float(w["paper_balance"])
                 bot["max_order_usd"] = float(w["max_order_usd"])
                 bot["min_order_usd"] = float(w["min_order_usd"])
-                bot["debounce_sec"] = float(w["debounce_sec"])
+                bot["coalesce_sec"] = float(
+                    2 if w.get("coalesce_sec") is None else w.get("coalesce_sec")
+                )
+                bot["debounce_sec"] = 0.0
                 bot["copy_current"] = False
                 bot.setdefault("positions", {})
                 bot.setdefault("fills", [])
@@ -206,8 +223,8 @@ def ensure_bots_from_watchlist() -> dict[str, Any]:
         for bid in list(bots.keys()):
             if bid not in wanted:
                 bots.pop(bid, None)
-                _last_fill_mono.pop(bid, None)
                 _leader_equity_mono.pop(bid, None)
+                _slices.pop(bid, None)
         # New seats start flat: baseline = now (no mid-book catch-up).
         now_ts = int(time.time())
         for bid in created:
@@ -348,6 +365,96 @@ def _record_skip(bot: dict[str, Any], trade: dict[str, Any], reason: str) -> Non
     stats["fills_skipped"] = int(stats.get("fills_skipped") or 0) + 1
 
 
+def _slice_key(trade: dict[str, Any]) -> str:
+    return f"{_pos_key(trade)}|{trade.get('side')}"
+
+
+def _coalesce_sec(bot: dict[str, Any]) -> float:
+    try:
+        raw = bot.get("coalesce_sec")
+        if raw is None:
+            raw = paper_config()["coalesce_sec"]
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return 2.0
+
+
+def _new_slice(trade: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "key": _slice_key(trade),
+        "opened_mono": time.monotonic(),
+        "touched_mono": time.monotonic(),
+        "trades": [trade],
+        "dedupe_keys": [trade["dedupe_key"]],
+    }
+
+
+def _merge_slice_trade(sl: dict[str, Any]) -> dict[str, Any]:
+    """Collapse buffered leader fills into one synthetic trade (size sum, VWAP)."""
+    trades: list[dict[str, Any]] = list(sl.get("trades") or [])
+    base = dict(trades[0])
+    total_sz = 0.0
+    notional = 0.0
+    for t in trades:
+        sz = float(t.get("size") or 0)
+        px = float(t.get("price") or 0)
+        total_sz += sz
+        notional += sz * px
+    px = (notional / total_sz) if total_sz > 0 else float(base.get("price") or 0)
+    base["size"] = total_sz
+    base["price"] = px
+    base["usdc_size"] = notional
+    base["source"] = "coalesce"
+    base["coalesce_n"] = len(trades)
+    base["dedupe_key"] = "coalesce|" + "|".join(sl.get("dedupe_keys") or [])
+    base["transaction_hash"] = ",".join(
+        str(t.get("transaction_hash") or "") for t in trades if t.get("transaction_hash")
+    )[:200]
+    return base
+
+
+def _flush_slice(book: dict[str, Any], bot: dict[str, Any]) -> dict[str, Any] | None:
+    bid = str(bot.get("id") or "")
+    sl = _slices.pop(bid, None)
+    if not sl or not sl.get("trades"):
+        return None
+    merged = _merge_slice_trade(sl)
+    result = _apply_to_bot(bot, merged)
+    # Consume child hashes after attempt (except retriable — put slice back).
+    if result.get("reason") in _RETRIABLE_SKIP:
+        _slices[bid] = sl
+        return result
+    for key in sl.get("dedupe_keys") or []:
+        _mark_seen(book, key)
+    return result
+
+
+def flush_coalesce_slices(force: bool = False) -> list[dict[str, Any]]:
+    """Flush expired (or all, if force) coalesce buffers. Called by supervisor."""
+    out: list[dict[str, Any]] = []
+    with _lock:
+        book = load_paper()
+        bots = book.get("bots") or {}
+        now = time.monotonic()
+        for bid in list(_slices.keys()):
+            bot = bots.get(bid)
+            if not isinstance(bot, dict):
+                _slices.pop(bid, None)
+                continue
+            sl = _slices.get(bid)
+            if not sl:
+                continue
+            window = _coalesce_sec(bot)
+            age = now - float(sl.get("touched_mono") or sl.get("opened_mono") or now)
+            if force or window <= 0 or age >= window:
+                result = _flush_slice(book, bot)
+                if result:
+                    out.append(result)
+        if out:
+            save_paper(book)
+    return out
+
+
 def ingest_trade(raw: dict[str, Any], *, source: str = "unknown") -> dict[str, Any]:
     """Ingest one leader trade into matching paper bots. Returns summary."""
     trade = normalize_trade(raw, source=source)
@@ -363,6 +470,7 @@ def ingest_trade(raw: dict[str, Any], *, source: str = "unknown") -> dict[str, A
         "dedupe_key": trade["dedupe_key"],
         "applied": [],
         "skipped": [],
+        "buffered": [],
     }
 
     with _lock:
@@ -372,6 +480,12 @@ def ingest_trade(raw: dict[str, Any], *, source: str = "unknown") -> dict[str, A
             summary["ok"] = False
             summary["reason"] = "duplicate"
             return summary
+        # Already sitting in an open coalesce buffer?
+        for sl in _slices.values():
+            if trade["dedupe_key"] in (sl.get("dedupe_keys") or []):
+                summary["ok"] = False
+                summary["reason"] = "duplicate"
+                return summary
 
         bots = book.get("bots") or {}
         matched = [
@@ -380,25 +494,56 @@ def ingest_trade(raw: dict[str, Any], *, source: str = "unknown") -> dict[str, A
             if isinstance(b, dict) and str(b.get("address") or "").lower() == proxy
         ]
         if not matched:
-            # Might arrive before bots sync — do not consume dedupe.
             summary["ok"] = False
             summary["reason"] = "no_bot"
             return summary
 
         for bot in matched:
-            result = _apply_to_bot(bot, trade)
-            if result.get("copied"):
-                summary["applied"].append(result)
-            else:
-                summary["skipped"].append(result)
+            bid = str(bot.get("id") or "")
+            window = _coalesce_sec(bot)
+            sk = _slice_key(trade)
+            sl = _slices.get(bid)
 
-        # Only consume dedupe when copied or permanently skipped.
-        # Retriable skips (no baseline / unknown leader equity) stay eligible.
-        retriable_only = bool(summary["skipped"]) and not summary["applied"] and all(
-            s.get("reason") in _RETRIABLE_SKIP for s in summary["skipped"]
-        )
-        if not retriable_only:
-            _mark_seen(book, trade["dedupe_key"])
+            # Different slice or expired → flush previous first.
+            if sl is not None:
+                age = time.monotonic() - float(
+                    sl.get("touched_mono") or sl.get("opened_mono") or 0
+                )
+                if sl.get("key") != sk or window <= 0 or age >= window:
+                    flushed = _flush_slice(book, bot)
+                    if flushed:
+                        if flushed.get("copied"):
+                            summary["applied"].append(flushed)
+                        else:
+                            summary["skipped"].append(flushed)
+
+            if window <= 0:
+                result = _apply_to_bot(bot, trade)
+                if result.get("reason") in _RETRIABLE_SKIP:
+                    summary["skipped"].append(result)
+                else:
+                    _mark_seen(book, trade["dedupe_key"])
+                    if result.get("copied"):
+                        summary["applied"].append(result)
+                    else:
+                        summary["skipped"].append(result)
+                continue
+
+            # Buffer into coalesce slice (do not mark seen until flush).
+            sl = _slices.get(bid)
+            if sl is None or sl.get("key") != sk:
+                _slices[bid] = _new_slice(trade)
+            else:
+                sl["trades"].append(trade)
+                sl["dedupe_keys"].append(trade["dedupe_key"])
+                sl["touched_mono"] = time.monotonic()
+            summary["buffered"].append(
+                {
+                    "bot_id": bid,
+                    "slice_key": sk,
+                    "n": len((_slices.get(bid) or {}).get("trades") or []),
+                }
+            )
 
         save_paper(book)
     return summary
@@ -414,13 +559,6 @@ def _apply_to_bot(bot: dict[str, Any], trade: dict[str, Any]) -> dict[str, Any]:
     if ts and ts <= int(baseline):
         _record_skip(bot, trade, "before_baseline")
         return {"bot_id": bid, "copied": False, "reason": "before_baseline"}
-
-    debounce = float(bot.get("debounce_sec") or 2)
-    now_m = time.monotonic()
-    last = _last_fill_mono.get(bid, 0.0)
-    if debounce > 0 and last and (now_m - last) < debounce:
-        _record_skip(bot, trade, "debounce")
-        return {"bot_id": bid, "copied": False, "reason": "debounce"}
 
     leader_eq = float(bot.get("leader_equity") or 0)
     our_eq = _bot_equity(bot)
@@ -523,6 +661,7 @@ def _apply_to_bot(bot: dict[str, Any], trade: dict[str, Any]) -> dict[str, Any]:
         "notional": notional,
         "ratio": ratio,
         "leader_size": trade.get("size"),
+        "coalesce_n": trade.get("coalesce_n") or 1,
         "asset": trade.get("asset"),
         "condition_id": trade.get("condition_id"),
         "outcome": trade.get("outcome"),
@@ -540,15 +679,15 @@ def _apply_to_bot(bot: dict[str, Any], trade: dict[str, Any]) -> dict[str, Any]:
         notional
     )
     _bot_equity(bot)
-    _last_fill_mono[bid] = now_m
 
     logger.info(
-        "poly paper copy bot=%s %s shares=%.4g @ %.4g ratio=%.4g %s/%s",
+        "poly paper copy bot=%s %s shares=%.4g @ %.4g ratio=%.4g n=%s %s/%s",
         bid,
         side,
         raw_shares,
         price,
         ratio,
+        fill.get("coalesce_n"),
         trade.get("outcome"),
         (trade.get("title") or "")[:48],
     )
@@ -560,6 +699,7 @@ def _apply_to_bot(bot: dict[str, Any], trade: dict[str, Any]) -> dict[str, Any]:
         "price": price,
         "notional": notional,
         "ratio": ratio,
+        "coalesce_n": fill.get("coalesce_n"),
     }
 
 
@@ -584,7 +724,8 @@ def slim_paper_for_api(book: dict[str, Any] | None = None) -> dict[str, Any]:
                     "baseline_ts": bot.get("baseline_ts"),
                     "max_order_usd": bot.get("max_order_usd"),
                     "min_order_usd": bot.get("min_order_usd"),
-                    "debounce_sec": bot.get("debounce_sec"),
+                    "coalesce_sec": bot.get("coalesce_sec"),
+                    "debounce_sec": 0,
                     "positions": list((bot.get("positions") or {}).values()),
                     "fills": (bot.get("fills") or [])[-50:],
                     "skips": (bot.get("skips") or [])[-30:],
@@ -603,10 +744,9 @@ def slim_paper_for_api(book: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def reset_paper() -> dict[str, Any]:
-    global _seen_cache
     with _lock:
-        _last_fill_mono.clear()
         _leader_equity_mono.clear()
+        _slices.clear()
         book = _empty_book()
         _reset_seen_cache(book)
         save_paper(book)
@@ -641,7 +781,7 @@ def reset_paper_bot(bot_id: str) -> dict[str, Any]:
                 },
             }
         )
-        _last_fill_mono.pop(bid, None)
         _leader_equity_mono.pop(bid, None)
+        _slices.pop(bid, None)
         save_paper(book)
     return slim_paper_for_api()

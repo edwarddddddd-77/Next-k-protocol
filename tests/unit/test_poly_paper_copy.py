@@ -25,7 +25,7 @@ def paper_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                 "paper_balance": 1000,
                 "max_order_usd": 100,
                 "min_order_usd": 1,
-                "debounce_sec": 0,
+                "coalesce_sec": 0,
                 "copy_current": False,
             }
         ],
@@ -33,7 +33,7 @@ def paper_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (tmp_path / "poly_watchlist.json").write_text(
         json.dumps(watch), encoding="utf-8"
     )
-    ppc._last_fill_mono.clear()
+    ppc._slices.clear()
     ppc.ensure_bots_from_watchlist()
     return tmp_path
 
@@ -159,3 +159,61 @@ def test_normalize_rejects_zero_price():
 def test_new_bot_gets_baseline(paper_env):
     book = ppc.load_paper()
     assert book["bots"]["bot_poly"].get("baseline_ts") is not None
+
+
+def test_burst_no_longer_dropped_by_debounce(paper_env):
+    """coalesce_sec=0 → each distinct tx is copied (open-source hash-dedupe style)."""
+    now = int(time.time())
+    book = ppc.load_paper()
+    bot = book["bots"]["bot_poly"]
+    bot["leader_equity"] = 10_000.0
+    bot["baseline_ts"] = now - 10
+    bot["coalesce_sec"] = 0
+    ppc.save_paper(book)
+
+    for i in range(3):
+        raw = _trade(
+            size=100,
+            price=0.5,
+            transactionHash="0x" + f"{i:02x}" * 32,
+            timestamp=now + i,
+        )
+        out = ppc.ingest_trade(raw, source="test")
+        assert out.get("applied"), out
+
+    book = ppc.load_paper()
+    pos = list(book["bots"]["bot_poly"]["positions"].values())[0]
+    # 3 × (100 * 0.1) = 30 shares
+    assert pos["shares"] == pytest.approx(30.0)
+    assert book["bots"]["bot_poly"]["stats"]["fills_copied"] == 3
+
+
+def test_coalesce_merges_burst(paper_env, monkeypatch):
+    now = int(time.time())
+    book = ppc.load_paper()
+    bot = book["bots"]["bot_poly"]
+    bot["leader_equity"] = 10_000.0
+    bot["baseline_ts"] = now - 10
+    bot["coalesce_sec"] = 2
+    bot["min_order_usd"] = 1
+    ppc.save_paper(book)
+
+    # Three tiny leader clips that individually would be dust at ratio 0.1
+    # if min were high — here they merge: 30+40+50 = 120 leader → 12 our shares.
+    for i, sz in enumerate((30, 40, 50)):
+        raw = _trade(
+            size=sz,
+            price=0.5,
+            transactionHash="0x" + f"{10 + i:02x}" * 32,
+            timestamp=now + 1,
+        )
+        out = ppc.ingest_trade(raw, source="test")
+        assert out.get("buffered"), out
+
+    flushed = ppc.flush_coalesce_slices(force=True)
+    assert any(r.get("copied") for r in flushed), flushed
+    book = ppc.load_paper()
+    pos = list(book["bots"]["bot_poly"]["positions"].values())[0]
+    assert pos["shares"] == pytest.approx(12.0)
+    fill = book["bots"]["bot_poly"]["fills"][-1]
+    assert fill.get("coalesce_n") == 3

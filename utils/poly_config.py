@@ -94,9 +94,19 @@ def load_watchlist() -> list[dict[str, Any]]:
         row["min_order_usd"] = float(
             w.get("min_order_usd") or os.getenv("POLY_MIN_ORDER_USD") or 1
         )
-        row["debounce_sec"] = float(
-            w.get("debounce_sec") or os.getenv("POLY_DEBOUNCE_SEC") or 2
-        )
+        # coalesce_sec: merge same-market same-side burst into one copy.
+        # 0 = copy every distinct tx immediately. debounce_sec is legacy alias.
+        coalesce = w.get("coalesce_sec")
+        if coalesce is None:
+            env_c = os.getenv("POLY_COALESCE_SEC")
+            coalesce = env_c if env_c is not None and str(env_c).strip() != "" else None
+        if coalesce is None:
+            coalesce = w.get("debounce_sec")
+        if coalesce is None:
+            env_d = os.getenv("POLY_DEBOUNCE_SEC")
+            coalesce = env_d if env_d is not None and str(env_d).strip() != "" else 2
+        row["coalesce_sec"] = float(coalesce)
+        row["debounce_sec"] = 0.0
         row["copy_current"] = _truthy(w.get("copy_current"))
         row["paper"] = _truthy(w.get("paper", True))
         row["live"] = _truthy(w.get("live", False))
@@ -110,7 +120,16 @@ def load_watchlist() -> list[dict[str, Any]]:
                 "paper_balance": float(os.getenv("POLY_PAPER_BALANCE") or 1000),
                 "max_order_usd": float(os.getenv("POLY_MAX_ORDER_USD") or 50),
                 "min_order_usd": float(os.getenv("POLY_MIN_ORDER_USD") or 1),
-                "debounce_sec": float(os.getenv("POLY_DEBOUNCE_SEC") or 2),
+                "coalesce_sec": float(
+                    os.getenv("POLY_COALESCE_SEC")
+                    if os.getenv("POLY_COALESCE_SEC") not in (None, "")
+                    else (
+                        os.getenv("POLY_DEBOUNCE_SEC")
+                        if os.getenv("POLY_DEBOUNCE_SEC") not in (None, "")
+                        else 2
+                    )
+                ),
+                "debounce_sec": 0.0,
                 "copy_current": False,
                 "paper": True,
                 "live": False,
