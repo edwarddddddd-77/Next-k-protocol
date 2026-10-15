@@ -655,10 +655,18 @@ def _apply_to_bot(bot: dict[str, Any], trade: dict[str, Any]) -> dict[str, Any]:
 
     if key in positions:
         positions[key]["mark"] = price
-        positions[key]["title"] = trade.get("title") or positions[key].get("title")
-        positions[key]["outcome"] = trade.get("outcome") or positions[key].get(
-            "outcome"
-        )
+        new_title = str(trade.get("title") or "").strip()
+        new_outcome = str(trade.get("outcome") or "").strip()
+        new_cid = str(trade.get("condition_id") or "").strip()
+        new_slug = str(trade.get("slug") or "").strip()
+        if new_title:
+            positions[key]["title"] = new_title
+        if new_outcome and new_outcome != "Unknown":
+            positions[key]["outcome"] = new_outcome
+        if new_cid:
+            positions[key]["condition_id"] = new_cid
+        if new_slug:
+            positions[key]["slug"] = new_slug
 
     fill = {
         "at": _now_iso(),
@@ -758,6 +766,82 @@ def _leader_pos_key(row: dict[str, Any]) -> str:
     cid = str(row.get("conditionId") or row.get("condition_id") or "").strip()
     outcome = str(row.get("outcome") or "").strip()
     return f"mkt:{cid}:{outcome}"
+
+
+def repair_paper_meta(bot_id: str | None = None) -> dict[str, Any]:
+    """Backfill title/outcome/conditionId for Unknown paper rows via Gamma."""
+    from utils.poly_data_api import resolve_token_meta
+
+    ensure_bots_from_watchlist()
+    repaired_pos = 0
+    repaired_fills = 0
+    with _lock:
+        book = load_paper()
+        bots = book.get("bots") or {}
+        if bot_id:
+            bid = str(bot_id).strip()
+            items = [(bid, bots[bid])] if isinstance(bots.get(bid), dict) else []
+            if not items:
+                raise LookupError(f"bot not found: {bid}")
+        else:
+            items = [(str(b.get("id") or ""), b) for b in bots.values() if isinstance(b, dict)]
+
+        for bid, bot in items:
+            for pos in (bot.get("positions") or {}).values():
+                if not isinstance(pos, dict):
+                    continue
+                asset = str(pos.get("asset") or "").strip()
+                outcome = str(pos.get("outcome") or "").strip()
+                title = str(pos.get("title") or "").strip()
+                cid = str(pos.get("condition_id") or "").strip()
+                if not asset:
+                    continue
+                if title and cid and outcome and outcome != "Unknown":
+                    continue
+                meta = resolve_token_meta(asset)
+                if not meta:
+                    continue
+                if not title and meta.get("title"):
+                    pos["title"] = meta["title"]
+                if (not outcome or outcome == "Unknown") and meta.get("outcome"):
+                    pos["outcome"] = meta["outcome"]
+                if not cid and meta.get("condition_id"):
+                    pos["condition_id"] = meta["condition_id"]
+                if not str(pos.get("slug") or "").strip() and meta.get("slug"):
+                    pos["slug"] = meta["slug"]
+                repaired_pos += 1
+
+            for fill in bot.get("fills") or []:
+                if not isinstance(fill, dict):
+                    continue
+                asset = str(fill.get("asset") or "").strip()
+                outcome = str(fill.get("outcome") or "").strip()
+                title = str(fill.get("title") or "").strip()
+                if not asset:
+                    continue
+                if title and outcome and outcome != "Unknown":
+                    continue
+                meta = resolve_token_meta(asset)
+                if not meta:
+                    continue
+                if not title and meta.get("title"):
+                    fill["title"] = meta["title"]
+                if (not outcome or outcome == "Unknown") and meta.get("outcome"):
+                    fill["outcome"] = meta["outcome"]
+                if not str(fill.get("condition_id") or "").strip() and meta.get(
+                    "condition_id"
+                ):
+                    fill["condition_id"] = meta["condition_id"]
+                repaired_fills += 1
+
+        if repaired_pos or repaired_fills:
+            save_paper(book)
+    return {
+        "ok": True,
+        "repaired_positions": repaired_pos,
+        "repaired_fills": repaired_fills,
+        "paper": slim_paper_for_api(),
+    }
 
 
 def sync_leader_positions(bot_id: str | None = None) -> dict[str, Any]:

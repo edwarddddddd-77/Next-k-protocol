@@ -59,6 +59,20 @@ async def sync_paper_positions(bot_id: str | None = Query(None)):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.post("/paper/repair-meta")
+async def repair_paper_meta_endpoint(bot_id: str | None = Query(None)):
+    """Backfill Unknown/empty market titles from token ids."""
+    from utils.poly_paper_copy import repair_paper_meta
+
+    try:
+        return await run_in_threadpool(repair_paper_meta, bot_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("poly repair-meta failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/paper/reset/{bot_id}")
 async def reset_paper_bot_ledger(bot_id: str):
     from utils.poly_paper_copy import reset_paper_bot

@@ -61,6 +61,32 @@ def test_normalize_trade_dedupe_key():
     assert "token-yes-1" in t["dedupe_key"]
 
 
+def test_normalize_enriches_ws_missing_meta(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "utils.poly_data_api.resolve_token_meta",
+        lambda asset: {
+            "title": "Will Indiana enact a data center moratorium by December 31, 2027?",
+            "outcome": "Yes",
+            "condition_id": "0x" + "ab" * 32,
+            "slug": "indiana",
+        },
+    )
+    raw = {
+        "proxyWallet": "0x" + "ab" * 20,
+        "side": "BUY",
+        "size": 10,
+        "price": 0.13,
+        "asset": "17772357652541837838268340566054305212337253685162402420922433137448964217470",
+        "transactionHash": "0x" + "99" * 32,
+        "timestamp": int(time.time()),
+    }
+    t = normalize_trade(raw, source="ws")
+    assert t is not None
+    assert t["outcome"] == "Yes"
+    assert "Indiana" in t["title"]
+    assert t["condition_id"].startswith("0x")
+
+
 def test_baseline_skips_history(paper_env):
     now = int(time.time())
     book = ppc.load_paper()
